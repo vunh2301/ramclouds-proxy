@@ -3,9 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "type": "commonjs",
-  "main": "run.cjs",
+  "main": "main.cjs",
   "scripts": {
-    "start": "node run.cjs"
+    "start": "node main.cjs"
   },
   "dependencies": {
     "dotenv": "^17.3.1",
