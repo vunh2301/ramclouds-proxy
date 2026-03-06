@@ -1,0 +1,17 @@
+{
+  "name": "ramclouds-cursor-proxy",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "run.cjs",
+  "scripts": {
+    "start": "node run.cjs"
+  },
+  "dependencies": {
+    "dotenv": "^17.3.1",
+    "express": "^4.19.2"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
