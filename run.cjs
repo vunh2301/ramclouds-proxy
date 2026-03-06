@@ -530,7 +530,27 @@ function mergeOpenAIWithSession(base, incoming) {
 
   if (newToolResults.length > 0) {
     console.log("[proxy] OpenAI tool-result merge: +" + newToolResults.length + " tool results for pending ids:", newToolResults.map(m => m.tool_call_id.slice(0,16)));
-    return { merged: [...base, ...newToolResults], appended: newToolResults.length, overlap: true };
+    // Also append any trailing non-tool messages (e.g. user "Accept" after tool results)
+    const newToolResultIds = new Set(newToolResults.map(m => m.tool_call_id));
+    const trailingMsgs = [];
+    // Find messages in inc that come AFTER the last tool result and are not tool results themselves
+    let lastToolResultIdx = -1;
+    for (let i = inc.length - 1; i >= 0; i--) {
+      if (inc[i]?.role === 'tool' && newToolResultIds.has(inc[i].tool_call_id)) {
+        lastToolResultIdx = i;
+        break;
+      }
+    }
+    if (lastToolResultIdx >= 0 && lastToolResultIdx < inc.length - 1) {
+      for (let i = lastToolResultIdx + 1; i < inc.length; i++) {
+        const m = inc[i];
+        if (m && m.role !== 'tool') trailingMsgs.push(m);
+      }
+    }
+    if (trailingMsgs.length > 0) {
+      console.log("[proxy] OpenAI tool-result merge: also appending", trailingMsgs.length, "trailing messages (roles:", trailingMsgs.map(m => m.role).join(',') + ")");
+    }
+    return { merged: [...base, ...newToolResults, ...trailingMsgs], appended: newToolResults.length + trailingMsgs.length, overlap: true };
   }
 
   // Find tool results in inc whose call_id is NOT in base at all (orphan results — e.g. Task tool)
@@ -549,7 +569,9 @@ function mergeOpenAIWithSession(base, incoming) {
       }))
     };
     console.log("[proxy] OpenAI reconstructing orphan tool calls:", orphanResults.map(m => m.tool_call_id.slice(0,16)));
-    return { merged: [...base, syntheticAssistant, ...orphanResults], appended: orphanResults.length + 1, overlap: true };
+    // Also append trailing non-tool messages (e.g. user message after tool results)
+    const trailingNonTool = inc.slice(inc.lastIndexOf(orphanResults[orphanResults.length - 1]) + 1).filter(m => m && m.role !== 'tool');
+    return { merged: [...base, syntheticAssistant, ...orphanResults, ...trailingNonTool], appended: orphanResults.length + 1 + trailingNonTool.length, overlap: true };
   }
 
   // If base has pending tool calls but inc has no tool results (e.g. Cursor sent fresh context),
@@ -577,7 +599,13 @@ function mergeOpenAIWithSession(base, incoming) {
       };
     });
     console.log("[proxy] OpenAI injecting synthetic results for pending ids:", [...basePendingIds].map(id => (pendingToolNames.get(id)||'?') + '/' + id.slice(0,12)));
-    return { merged: [...base, ...synthetic], appended: synthetic.length, overlap: true };
+    // Also append trailing non-tool messages from inc
+    const lastToolIdx = inc.map((m, i) => m?.role === 'tool' ? i : -1).filter(i => i >= 0).pop() ?? -1;
+    const trailingNonTool = lastToolIdx >= 0 ? inc.slice(lastToolIdx + 1).filter(m => m && m.role !== 'tool') : inc.filter(m => m?.role === 'user');
+    if (trailingNonTool.length > 0) {
+      console.log("[proxy] synthetic merge: also appending", trailingNonTool.length, "trailing messages");
+    }
+    return { merged: [...base, ...synthetic, ...trailingNonTool], appended: synthetic.length + trailingNonTool.length, overlap: true };
   }
 
   // No pending tool results — fall back to positional prefix match for new user messages
@@ -863,6 +891,24 @@ async function handleOpenAIPassthrough(req, res, incoming, stream) {
   if (Array.isArray(incoming.tools)) {
     console.log('[proxy] incoming tools =', incoming.tools.length);
     console.log('[proxy] normalized tools =', Array.isArray(tools) ? tools.length : 0);
+    // Log ALL tool names from Cursor
+    const allToolNames = incoming.tools.map(t => t?.function?.name || t?.name || '?').join(', ');
+    console.log('[proxy] incoming tool names:', allToolNames);
+    // Log normalized tool names for comparison
+    if (Array.isArray(tools)) {
+      const normNames = tools.map(t => t?.function?.name || t?.name || '?').join(', ');
+      console.log('[proxy] normalized tool names:', normNames);
+    }
+    // Debug: log CreatePlan tool definition as received from Cursor
+    for (const t of incoming.tools) {
+      const n = t?.function?.name || t?.name || '';
+      if (n === 'CreatePlan') {
+        console.log('[proxy] CreatePlan incoming tool def:', JSON.stringify(t).slice(0, 2000));
+      }
+      if (n === 'ApplyPatch') {
+        console.log('[proxy] ApplyPatch incoming tool def:', JSON.stringify(t).slice(0, 2000));
+      }
+    }
   }
 
   // Convert Chat Completions messages → Responses API input[]
@@ -893,6 +939,8 @@ async function handleOpenAIPassthrough(req, res, incoming, stream) {
   if (incoming.max_completion_tokens !== undefined) responsesBody.max_output_tokens = incoming.max_completion_tokens;
   // Known tool schemas that Cursor sends with empty properties — enrich them
   const KNOWN_TOOL_SCHEMAS = {
+    // NOTE: CreatePlan intentionally NOT here — Cursor sends empty schema on purpose.
+    // The tool description tells the model to output markdown-formatted plan.
     SwitchMode: {
       type: 'object',
       properties: {
@@ -996,6 +1044,24 @@ async function handleOpenAIPassthrough(req, res, incoming, stream) {
     }
   };
 
+  // Build a map of original tool parameters from incoming.tools (before normalization)
+  const originalToolParams = {};
+  if (Array.isArray(incoming.tools)) {
+    for (const t of incoming.tools) {
+      const n = t?.function?.name || t?.name || '';
+      if (!n) continue;
+      const p = t?.function?.parameters || t?.parameters || t?.input_schema || null;
+      if (p && p.properties && Object.keys(p.properties).length > 0) {
+        originalToolParams[n] = p;
+      } else {
+        // Log tools with empty/missing properties for debugging
+        if (n === 'ApplyPatch' || n === 'CreatePlan') {
+          console.log('[proxy] ' + n + ' original tool (no properties):', JSON.stringify(t).slice(0, 1000));
+        }
+      }
+    }
+  }
+
   if (Array.isArray(tools) && tools.length > 0) {
     responsesBody.tools = tools.map(t => {
       let name, description, parameters;
@@ -1010,18 +1076,25 @@ async function handleOpenAIPassthrough(req, res, incoming, stream) {
       } else {
         return t;
       }
-      // If properties is empty and we know the schema, inject it
+      // Restore original parameters if normalization stripped them
+      if ((!parameters.properties || Object.keys(parameters.properties).length === 0) && originalToolParams[name]) {
+        console.log('[proxy] restoring original params for tool:', name);
+        parameters = originalToolParams[name];
+      }
+      // If properties is still empty and we know the schema, inject it
       if ((!parameters.properties || Object.keys(parameters.properties).length === 0) && KNOWN_TOOL_SCHEMAS[name]) {
         console.log('[proxy] enriching empty schema for tool:', name, '| original desc:', description.slice(0,100));
         if (name === 'CreatePlan' || name === 'Task') console.log('[proxy] ' + name + ' original schema:', JSON.stringify(parameters));
         parameters = KNOWN_TOOL_SCHEMAS[name];
       }
+      if (name === 'CreatePlan' || name === 'Task') console.log('[proxy] ' + name + ' FINAL params sent to API:', JSON.stringify(parameters).slice(0, 500));
       return { type: 'function', name, description, parameters };
     });
   }
 
   const responsesUrl = openaiUrl.replace(/\/chat\/completions$/, '/responses');
   console.log('[proxy] Responses API URL:', responsesUrl);
+
   const upstreamRes = await fetch(responsesUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(apiKey ? { Authorization: 'Bearer ' + apiKey } : {}) },
@@ -1046,10 +1119,13 @@ async function handleOpenAIPassthrough(req, res, incoming, stream) {
   const model = incoming.model || 'gpt-5.4';
 
   // Helper: emit a Chat Completions SSE chunk to Cursor
+  // NOTE: assistantToolCalls is declared inside the stream block below,
+  // so we use a wrapper reference that gets set once streaming starts.
+  let _assistantToolCalls = null;
   function emitChunk(delta, finishReason = null) {
     // Log raw SSE for CreatePlan tool calls
     if (delta?.tool_calls?.[0]?.function?.name === 'CreatePlan' ||
-        (delta?.tool_calls?.[0] && assistantToolCalls[delta.tool_calls[0].index]?.function?.name === 'CreatePlan')) {
+        (delta?.tool_calls?.[0] && _assistantToolCalls && _assistantToolCalls[delta.tool_calls[0].index]?.function?.name === 'CreatePlan')) {
       console.log('[proxy] SSE CreatePlan chunk:', JSON.stringify(delta).slice(0, 200));
     }
     const chunk = {
@@ -1068,6 +1144,7 @@ async function handleOpenAIPassthrough(req, res, incoming, stream) {
 
     let assistantText = '';
     let assistantToolCalls = [];
+    _assistantToolCalls = assistantToolCalls;
     let currentToolCallIdx = -1;
     let pendingFcItems = {};
     let _seenEvtTypes = new Set();
@@ -1115,7 +1192,7 @@ async function handleOpenAIPassthrough(req, res, incoming, stream) {
                 if (tc.function?.name) assistantToolCalls[idx].function.name += tc.function.name;
                 if (tc.function?.arguments) {
                   assistantToolCalls[idx].function.arguments += tc.function.arguments;
-                  emitChunk({ tool_calls: [{ index: idx, function: { arguments: tc.function.arguments } }] });
+                  emitChunk({ tool_calls: [{ index: idx, id: assistantToolCalls[idx].id || tc.id || '', function: { arguments: tc.function.arguments } }] });
                 }
               }
             }
@@ -1129,11 +1206,14 @@ async function handleOpenAIPassthrough(req, res, incoming, stream) {
               const fcItemId = item.id || '';
               const id = item.call_id || '';
               const name = item.name || '';
-              console.log('[proxy] FC output_item.added: fcItemId=' + fcItemId.slice(0,20) + ' call_id=' + id.slice(0,20) + ' name=' + name);
-              if (!pendingFcItems[fcItemId]) {
+              console.log('[proxy] FC output_item.added: fcItemId=' + fcItemId + ' call_id=' + id.slice(0,20) + ' name=' + name);
+              // Use hasOwnProperty to avoid !0 falsy bug
+              if (fcItemId && !pendingFcItems.hasOwnProperty(fcItemId)) {
                 currentToolCallIdx++;
-                pendingFcItems[fcItemId] = currentToolCallIdx;
                 const idx = currentToolCallIdx;
+                pendingFcItems[fcItemId] = idx;
+                // Also map call_id → idx so arguments.delta can find it by either key
+                if (id) pendingFcItems[id] = idx;
                 const realId = id || fcItemId;
                 assistantToolCalls[idx] = { id: realId, type:'function', function:{name,arguments:''} };
                 // Emit with full name+id so Cursor identifies the tool correctly
@@ -1145,39 +1225,75 @@ async function handleOpenAIPassthrough(req, res, incoming, stream) {
           }
 
           // Responses API: function call arguments delta
-          // If we see a delta before output_item.added (e.g. CreatePlan), init the tool call now
           if (evtType === 'response.function_call_arguments.delta') {
             const itemId = evt.item_id || '';
-            // Init new tool call if not yet seen this item_id
+            const callId = evt.call_id || '';
             if (!pendingFcItems) pendingFcItems = {};
-            if (itemId && !pendingFcItems[itemId]) {
+            // Lookup idx by item_id first, then call_id
+            let idx;
+            let lookupMethod = '';
+            if (itemId && pendingFcItems.hasOwnProperty(itemId)) {
+              idx = pendingFcItems[itemId];
+              lookupMethod = 'item_id';
+            } else if (callId && pendingFcItems.hasOwnProperty(callId)) {
+              idx = pendingFcItems[callId];
+              lookupMethod = 'call_id';
+            } else {
+              // Not yet seen — init new tool call
+              lookupMethod = 'NEW';
               currentToolCallIdx++;
-              pendingFcItems[itemId] = currentToolCallIdx;
-              const idx = currentToolCallIdx;
-              const id = evt.call_id || itemId;
+              idx = currentToolCallIdx;
+              const id = callId || itemId;
+              if (itemId) pendingFcItems[itemId] = idx;
+              if (callId) pendingFcItems[callId] = idx;
               assistantToolCalls[idx] = { id, type:'function', function:{name:'',arguments:''} };
               emitChunk({ tool_calls: [{ index: idx, id, type:'function', function:{name:'',arguments:''} }] });
+              console.log('[proxy] FC args.delta NEW tc: idx=' + idx + ' itemId=' + itemId + ' callId=' + callId);
             }
-            const idx = itemId && pendingFcItems[itemId] !== undefined ? pendingFcItems[itemId] : (currentToolCallIdx >= 0 ? currentToolCallIdx : 0);
             const args = evt.delta || '';
             if (assistantToolCalls[idx]) assistantToolCalls[idx].function.arguments += args;
-            emitChunk({ tool_calls: [{ index: idx, function: { arguments: args } }] });
+            const tcId = assistantToolCalls[idx]?.id || callId || itemId || '';
+            emitChunk({ tool_calls: [{ index: idx, id: tcId, function: { arguments: args } }] });
             continue;
           }
 
-          // Responses API: function call done — update name/call_id from done event
+          // Responses API: function call done — update name/call_id/arguments from done event
           if (evtType === 'response.function_call_arguments.done') {
             const itemId = evt.item_id || '';
+            const callId = evt.call_id || '';
             if (!pendingFcItems) pendingFcItems = {};
-            const idx = itemId && pendingFcItems[itemId] !== undefined ? pendingFcItems[itemId] : (currentToolCallIdx >= 0 ? currentToolCallIdx : 0);
+            // Lookup idx by item_id or call_id
+            let idx;
+            if (itemId && pendingFcItems.hasOwnProperty(itemId)) {
+              idx = pendingFcItems[itemId];
+            } else if (callId && pendingFcItems.hasOwnProperty(callId)) {
+              idx = pendingFcItems[callId];
+            } else {
+              idx = currentToolCallIdx >= 0 ? currentToolCallIdx : 0;
+            }
             if (assistantToolCalls[idx]) {
               // Update to real call_id (not fc_ item id)
-              if (evt.call_id && evt.call_id !== assistantToolCalls[idx].id) {
-                // Map old fc_ id → real call_ id for dedup
+              if (callId && callId !== assistantToolCalls[idx].id) {
                 if (assistantToolCalls[idx].id) pendingFcItems[assistantToolCalls[idx].id + '_resolved'] = idx;
-                assistantToolCalls[idx].id = evt.call_id;
+                assistantToolCalls[idx].id = callId;
+                // Also register the new call_id for future lookups
+                pendingFcItems[callId] = idx;
               }
               if (evt.name) assistantToolCalls[idx].function.name = evt.name;
+              // CRITICAL: Set complete arguments from done event.
+              // Delta accumulation may miss chunks; done event has the authoritative full args.
+              if (typeof evt.arguments === 'string' && evt.arguments.length > 0) {
+                const accumulated = assistantToolCalls[idx].function.arguments || '';
+                if (evt.arguments.length > accumulated.length) {
+                  // Emit remaining args not yet streamed
+                  const remaining = evt.arguments.slice(accumulated.length);
+                  if (remaining) {
+                    const tcId = assistantToolCalls[idx].id || callId || itemId || '';
+                    emitChunk({ tool_calls: [{ index: idx, id: tcId, function: { arguments: remaining } }] });
+                  }
+                }
+                assistantToolCalls[idx].function.arguments = evt.arguments;
+              }
             }
             continue;
           }
@@ -1187,12 +1303,30 @@ async function handleOpenAIPassthrough(req, res, incoming, stream) {
             const item = evt.item || {};
             if (item.type === 'function_call') {
               const itemId = item.id || '';
+              const callId = item.call_id || '';
               if (!pendingFcItems) pendingFcItems = {};
-              const idx = pendingFcItems[itemId] !== undefined ? pendingFcItems[itemId] : currentToolCallIdx;
+              let idx;
+              if (itemId && pendingFcItems.hasOwnProperty(itemId)) idx = pendingFcItems[itemId];
+              else if (callId && pendingFcItems.hasOwnProperty(callId)) idx = pendingFcItems[callId];
+              else idx = currentToolCallIdx >= 0 ? currentToolCallIdx : -1;
               if (idx >= 0 && assistantToolCalls[idx]) {
-                if (item.call_id) assistantToolCalls[idx].id = item.call_id;
+                if (item.call_id) {
+                  assistantToolCalls[idx].id = item.call_id;
+                  pendingFcItems[item.call_id] = idx;
+                }
                 if (item.name) assistantToolCalls[idx].function.name = item.name;
-                // Update name in first emitted chunk via a name-only patch (no re-emit to avoid duplicate)
+                // Also backfill arguments from done item if available
+                if (typeof item.arguments === 'string' && item.arguments.length > 0) {
+                  const accumulated = assistantToolCalls[idx].function.arguments || '';
+                  if (item.arguments.length > accumulated.length) {
+                    const remaining = item.arguments.slice(accumulated.length);
+                    if (remaining) {
+                      const tcId = assistantToolCalls[idx].id || callId || itemId || '';
+                      emitChunk({ tool_calls: [{ index: idx, id: tcId, function: { arguments: remaining } }] });
+                    }
+                  }
+                  assistantToolCalls[idx].function.arguments = item.arguments;
+                }
               }
             }
             continue;
