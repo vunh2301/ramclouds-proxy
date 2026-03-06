@@ -6,6 +6,7 @@ node_modules/
 
 # Logs
 *.log
+package-lock.json
 
 # OS files
 .DS_Store
