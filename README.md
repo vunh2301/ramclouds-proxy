@@ -58,6 +58,8 @@ Ví dụ:
 $env:EXTRA_MODEL_MAP='{"claude-opus-4.6-thinking":"claude-opus-4.6-CL"}'
 ```
 
+Biến này là tùy chọn. Nếu không khai báo, proxy sẽ dùng model nhận từ client hoặc ánh xạ mặc định đã có trong mã nguồn.
+
 Không đưa API key thật vào `README.md`, `.env` mẫu, ảnh chụp màn hình hoặc commit lên nơi công khai.
 
 ## Chạy ứng dụng
@@ -71,10 +73,32 @@ Theo `package.json`, đây là cách khởi động chính thức của dự án
 
 Nếu giữ nguyên `PORT=8080`, proxy sẽ lắng nghe tại `http://localhost:8080`.
 
-## Cấu hình trong Cursor
-Trong phần cấu hình provider hoặc OpenAI-compatible endpoint của Cursor:
-- Base URL: `http://localhost:8080`
-- API key: nhập theo luồng cấu hình mà giao diện Cursor yêu cầu. Trong nhiều trường hợp, bạn có thể điền một giá trị bất kỳ tại đây vì proxy sẽ dùng `PROVIDER_API_KEY` để gọi upstream.
+## Dùng với Cursor
+### 1) Chạy Cloudflare để lấy URL HTTPS
+Sau khi proxy đã chạy bằng `npm start`, mở thêm một terminal khác và chạy:
+
+```powershell
+cloudflared tunnel --url http://localhost:8080
+```
+
+Cloudflare sẽ trả về một URL dạng `https://xxxxx.trycloudflare.com`.
+
+Hãy giữ terminal này chạy và copy đúng URL có `https` để dùng trong Cursor.
+
+### 2) Add vào OpenAI API Key trên Cursor
+Trong Cursor, vào phần cấu hình OpenAI hoặc OpenAI-compatible rồi nhập:
+- OpenAI Base URL: dán URL HTTPS vừa lấy từ Cloudflare
+- OpenAI API Key: nhập key bất kỳ cũng được
+
+Ví dụ:
+- Base URL: `https://xxxxx.trycloudflare.com`
+- API Key: `abc123`
+
+Proxy sẽ dùng `PROVIDER_API_KEY` ở phía server để gọi upstream, nên phần key trong Cursor chỉ cần có giá trị là được.
+
+### 3) Chọn model để dùng
+- Nếu muốn dùng **Opus 4.6 có thinking**: chọn `opus ram CL`
+- Nếu muốn dùng **GPT-4.5**: chọn `gpt-4.5 ram`
 
 ## Kiểm tra nhanh
 Sau khi ứng dụng chạy, bạn có thể kiểm tra endpoint sức khỏe:
@@ -85,9 +109,16 @@ GET /healthz
 
 Nếu chạy local mặc định, URL kiểm tra là `http://localhost:8080/healthz`.
 
+Ví dụ kiểm tra nhanh trong PowerShell:
+```powershell
+Invoke-WebRequest http://localhost:8080/healthz
+```
+
 ## Tóm tắt luồng sử dụng
 1. Cài Node.js 18 trở lên.
 2. Chạy `npm install`.
 3. Khai báo `PORT`, `PROVIDER_BASE_URL`, `PROVIDER_API_KEY`.
 4. Chạy `npm start`.
-5. Trỏ Cursor về `http://localhost:8080`.
+5. Chạy Cloudflare và lấy URL `https://...trycloudflare.com`.
+6. Dán URL đó vào OpenAI Base URL trong Cursor, nhập API key bất kỳ.
+7. Chọn model `opus ram CL` hoặc `gpt-4.5 ram` để dùng.

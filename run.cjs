@@ -579,7 +579,7 @@ function mergeOpenAIWithSession(base, incoming) {
   if (basePendingIds.size > 0) {
     // Check if ALL pending calls are for client-side-only tools (e.g. CreatePlan) that never send results.
     // For these, inject a success synthetic result so session stays clean.
-    const CLIENT_SIDE_TOOLS = new Set(['CreatePlan', 'Task']);
+    const CLIENT_SIDE_TOOLS = new Set(['CreatePlan', 'Task', 'ApplyPatch']);
     const pendingToolNames = new Map();
     for (const m of base) {
       if (m?.role === 'assistant' && Array.isArray(m.tool_calls)) {
@@ -594,7 +594,7 @@ function mergeOpenAIWithSession(base, incoming) {
       return {
         role: 'tool', tool_call_id: id,
         content: isClientSide
-          ? 'Plan created successfully. Now proceed to execute the plan steps.'
+          ? (name === 'ApplyPatch' ? 'Patch applied successfully.' : 'Plan created successfully. Now proceed to execute the plan steps.')
           : 'Tool call was interrupted or cancelled. Please proceed without this result.'
       };
     });
@@ -657,7 +657,25 @@ function normalizeMessagesToChatFormat(messages) {
         continue;
       }
 
-      if (parsed?.type === 'function_call_output') {
+      // Handle custom_tool_call (e.g. ApplyPatch) — convert to assistant tool_call
+      if (parsed?.type === 'custom_tool_call') {
+        const callId = parsed.call_id || parsed.id || '';
+        const name = parsed.name || '';
+        const args = parsed.arguments || parsed.args || '{}';
+        console.log('[proxy] converting custom_tool_call -> assistant tool_call, name=' + name + ' call_id=' + (callId || '').slice(0, 20));
+        result.push({
+          role: 'assistant',
+          content: null,
+          tool_calls: [{
+            id: callId,
+            type: 'function',
+            function: { name, arguments: typeof args === 'string' ? args : JSON.stringify(args) }
+          }]
+        });
+        continue;
+      }
+
+      if (parsed?.type === 'function_call_output' || parsed?.type === 'custom_tool_call_output') {
         // Convert to role:"tool" format
         const callId = parsed.call_id || parsed.id || '';
         // Log CreatePlan result
@@ -939,8 +957,18 @@ async function handleOpenAIPassthrough(req, res, incoming, stream) {
   if (incoming.max_completion_tokens !== undefined) responsesBody.max_output_tokens = incoming.max_completion_tokens;
   // Known tool schemas that Cursor sends with empty properties — enrich them
   const KNOWN_TOOL_SCHEMAS = {
-    // NOTE: CreatePlan intentionally NOT here — Cursor sends empty schema on purpose.
-    // The tool description tells the model to output markdown-formatted plan.
+    // NOTE: CreatePlan intentionally NOT here — Cursor sends full schema via incoming.tools.
+    ApplyPatch: {
+      type: 'object',
+      properties: {
+        patch: {
+          type: 'string',
+          description: 'The complete patch content. MUST start with "*** Begin Patch" on its own line and end with "*** End Patch" on its own line. Use \\n for newlines within the patch string.'
+        }
+      },
+      required: ['patch'],
+      additionalProperties: false
+    },
     SwitchMode: {
       type: 'object',
       properties: {
@@ -1253,7 +1281,11 @@ async function handleOpenAIPassthrough(req, res, incoming, stream) {
             const args = evt.delta || '';
             if (assistantToolCalls[idx]) assistantToolCalls[idx].function.arguments += args;
             const tcId = assistantToolCalls[idx]?.id || callId || itemId || '';
-            emitChunk({ tool_calls: [{ index: idx, id: tcId, function: { arguments: args } }] });
+            // For ApplyPatch: buffer args, don't emit deltas — will emit unwrapped in done handler
+            const isApplyPatch = assistantToolCalls[idx]?.function?.name === 'ApplyPatch';
+            if (!isApplyPatch) {
+              emitChunk({ tool_calls: [{ index: idx, id: tcId, function: { arguments: args } }] });
+            }
             continue;
           }
 
@@ -1283,16 +1315,31 @@ async function handleOpenAIPassthrough(req, res, incoming, stream) {
               // CRITICAL: Set complete arguments from done event.
               // Delta accumulation may miss chunks; done event has the authoritative full args.
               if (typeof evt.arguments === 'string' && evt.arguments.length > 0) {
-                const accumulated = assistantToolCalls[idx].function.arguments || '';
-                if (evt.arguments.length > accumulated.length) {
-                  // Emit remaining args not yet streamed
-                  const remaining = evt.arguments.slice(accumulated.length);
-                  if (remaining) {
-                    const tcId = assistantToolCalls[idx].id || callId || itemId || '';
-                    emitChunk({ tool_calls: [{ index: idx, id: tcId, function: { arguments: remaining } }] });
+                let finalArgs = evt.arguments;
+                // ApplyPatch: Cursor expects raw patch string as arguments, not JSON-wrapped {patch:"..."}
+                const isApplyPatch = assistantToolCalls[idx]?.function?.name === 'ApplyPatch';
+                if (isApplyPatch) {
+                  try {
+                    const parsed = JSON.parse(finalArgs);
+                    if (typeof parsed?.patch === 'string') {
+                      finalArgs = parsed.patch;
+                      console.log('[proxy] ApplyPatch: unwrapped patch field, len=' + finalArgs.length);
+                    }
+                  } catch {}
+                  // Emit entire unwrapped patch as single arguments delta
+                  const tcId = assistantToolCalls[idx].id || callId || itemId || '';
+                  emitChunk({ tool_calls: [{ index: idx, id: tcId, function: { arguments: finalArgs } }] });
+                } else {
+                  const accumulated = assistantToolCalls[idx].function.arguments || '';
+                  if (finalArgs.length > accumulated.length) {
+                    const remaining = finalArgs.slice(accumulated.length);
+                    if (remaining) {
+                      const tcId = assistantToolCalls[idx].id || callId || itemId || '';
+                      emitChunk({ tool_calls: [{ index: idx, id: tcId, function: { arguments: remaining } }] });
+                    }
                   }
                 }
-                assistantToolCalls[idx].function.arguments = evt.arguments;
+                assistantToolCalls[idx].function.arguments = finalArgs;
               }
             }
             continue;
@@ -1463,6 +1510,11 @@ app.post("/v1/chat/completions", async (req, res) => {
 
   if (config.SANITIZE_SYSTEM) claudeBody.system = sanitizeSystemForUpstream(claudeBody.system);
   if (config.TRIM_TOOLS) claudeBody.tools = trimToolsForUpstream(claudeBody.tools);
+  // Log tool names for Claude path
+  if (Array.isArray(incoming.tools)) {
+    const names = incoming.tools.map(t => t?.function?.name || t?.name || '?').join(', ');
+    console.log('[proxy] Claude path incoming tool names:', names);
+  }
   // Drop tools with empty/missing name — Claude API rejects them with empty_string error
   if (Array.isArray(claudeBody.tools)) {
     const before = claudeBody.tools.length;
@@ -1762,7 +1814,7 @@ if (merged.appended) console.log("[proxy] session merge appended =", merged.appe
       if (hasUsefulContent) {
         commitAssistantTurn(real);
         console.log("[proxy] committed assistant blocks:",
-          real.map((b) => `${b.type}${b.id ? ":" + b.id : ""}`).join(", "));
+          real.map((b) => `${b.type}${b.name ? "(" + b.name + ")" : ""}${b.id ? ":" + b.id : ""}`).join(", "));
       } else if (state.finishReason) {
         commitAssistantTurn([{ type: "text", text: "" }]);
       } else {
