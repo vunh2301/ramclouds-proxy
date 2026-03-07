@@ -17,6 +17,7 @@ const { getConfig } = require("./lib/config");
 const { loadModelConfig, resolveModel, loadAnthropicPrefixes, isAnthropicModel } = require("./lib/router");
 const { handleClaude } = require("./lib/handlers/claude-handler");
 const { handleOpenAI } = require("./lib/handlers/openai-handler");
+const { createToolBatchMiddleware } = require("./lib/middleware/tool-batch");
 const session = require("./lib/session");
 
 const config = getConfig();
@@ -111,7 +112,9 @@ app.post("/v1/responses", async (req, res) => {
 
 // ==================== MAIN ROUTE ====================
 
-app.post("/v1/chat/completions", async (req, res) => {
+const toolBatch = createToolBatchMiddleware(config);
+
+app.post("/v1/chat/completions", toolBatch, async (req, res) => {
   if (!config.PROVIDER_ORIGIN) return res.status(500).json({ error: { message: "Missing PROVIDER_BASE_URL" } });
   session.cleanup();
 
@@ -145,6 +148,8 @@ app.listen(config.PORT, () => {
   console.log(`[proxy] Anthropic: ${config.PROVIDER_ORIGIN || "(missing)"}${config.PROVIDER_BASEPATH || ""}`);
   console.log(`[proxy] OpenAI: ${config.OPENAI_BASE_URL || config.PROVIDER_ORIGIN || "https://api.openai.com"}`);
   console.log(`[proxy] limits: soft=${config.RAM_SOFT_LIMIT_TOKENS} hard=${config.RAM_HARD_LIMIT_TOKENS}`);
+  console.log(`[proxy] batch tool results: ${config.BATCH_TOOL_RESULTS ? "ON (" + config.BATCH_WINDOW_MS + "ms)" : "OFF"}`);
+  console.log(`[proxy] merge tool calls: ${config.MERGE_TOOL_CALLS ? "ON (" + config.MERGE_TOOL_NAMES.join(",") + ")" : "OFF"}`);
   console.log(`[proxy] anthropic prefixes:`, anthropicPrefixes);
   console.log(`[proxy] models:`, allModelIds);
 });
