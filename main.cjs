@@ -102,6 +102,7 @@ function buildAnthropicHeaders(req, config) {
 
   const headers = {
     "Content-Type": "application/json",
+    "Accept-Encoding": "identity",
     "anthropic-version": anthropicVersion,
   };
 
@@ -456,6 +457,7 @@ app.post("/v1/responses", async (req, res) => {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "Accept-Encoding": "identity",
         ...(apiKey ? { Authorization: "Bearer " + apiKey } : {}),
       },
       body: JSON.stringify(body),
