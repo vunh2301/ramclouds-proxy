@@ -78,17 +78,38 @@ npm install -g @anthropic-ai/amp
 
 ### 2) Dang nhap AMP
 
-```bash
+```powershell
 npm run amp-login
 ```
 
-Lenh nay se:
-- Logout session cu (neu co)
-- Chay `amp login` tro den `ampcode.com`
-- Mo browser de xac thuc
-- Luu credentials vao file secrets local
+Hoac chay truc tiep:
 
-Sau khi login thanh cong, proxy tu dong doc credentials tu file secrets.
+```powershell
+powershell -ExecutionPolicy Bypass -File amp-cli-e2e.ps1
+```
+
+Script se:
+1. Hoi PORT (mac dinh 8081)
+2. Khoi dong proxy server
+3. Tao session login qua API
+4. Chay `amp login`, mo browser de xac thuc
+5. Poll trang thai, hien auth code (tu copy vao clipboard)
+6. Khi thanh cong: set `AMP_URL`, `AMP_API_KEY` vao env + `settings.json`
+
+Tham so tuy chon:
+
+```powershell
+.\amp-cli-e2e.ps1 -Port 8081 -ApiKey "your-key" -OpenBrowserFromScript -StopServerWhenDone
+```
+
+| Tham so | Mo ta |
+|---------|-------|
+| `-Port` | Port chay proxy (mac dinh hoi khi chay) |
+| `-ApiKey` | Inbound API key (doc tu .env neu khong truyen) |
+| `-OpenBrowserFromScript` | Tu dong mo browser |
+| `-StopServerWhenDone` | Tat proxy sau khi login xong |
+| `-PollIntervalSec` | Khoang cach poll (mac dinh 2s) |
+| `-MaxPoll` | So lan poll toi da (mac dinh 180) |
 
 ### 3) Cau hinh AMP CLI tro vao proxy
 

@@ -1,0 +1,249 @@
+param(
+  [string]$ApiKey = "",
+  [string]$WorkspaceId = "ws-local",
+  [string]$Provider = "amp",
+  [int]$PollIntervalSec = 2,
+  [int]$MaxPoll = 180,
+  [int]$Port = 0,
+  [switch]$StopServerWhenDone,
+  [switch]$OpenBrowserFromScript
+)
+
+$ErrorActionPreference = "Stop"
+
+function Get-EnvValueFromFile {
+  param(
+    [string]$Path,
+    [string]$Name
+  )
+
+  if (-not (Test-Path $Path)) { return "" }
+
+  foreach ($line in Get-Content -Path $Path) {
+    $t = ($line -replace "\s+#.*$", "").Trim()
+    if (-not $t -or $t.StartsWith("#")) { continue }
+    if ($t -match ("^" + [regex]::Escape($Name) + "=(.*)$")) {
+      return $matches[1].Trim().Trim('"')
+    }
+  }
+
+  return ""
+}
+
+function Wait-Healthz {
+  param(
+    [string]$BaseUrl,
+    [int]$MaxSeconds = 40
+  )
+
+  for ($i = 0; $i -lt $MaxSeconds; $i++) {
+    try {
+      $health = Invoke-RestMethod -Method GET -Uri "$BaseUrl/healthz" -TimeoutSec 3
+      if ("$health" -eq "ok") { return $true }
+    } catch {
+      Start-Sleep -Seconds 1
+    }
+  }
+
+  return $false
+}
+
+function Set-AmpSettingsUrl {
+  param(
+    [string]$ProxyUrl
+  )
+
+  try {
+    if (-not $env:APPDATA) {
+      Write-Host "APPDATA not found; skip settings restore." -ForegroundColor Yellow
+      return
+    }
+
+    $settingsPath = Join-Path $env:APPDATA "amp\settings.json"
+    $settingsDir = Split-Path -Parent $settingsPath
+    if (-not (Test-Path $settingsDir)) {
+      New-Item -ItemType Directory -Force -Path $settingsDir | Out-Null
+    }
+
+    $obj = $null
+    if (Test-Path $settingsPath) {
+      try {
+        $raw = Get-Content -Path $settingsPath -Raw
+        if (-not [string]::IsNullOrWhiteSpace($raw)) {
+          $obj = $raw | ConvertFrom-Json
+        }
+      } catch {
+        $obj = $null
+      }
+    }
+
+    if ($null -eq $obj) {
+      $obj = [pscustomobject]@{}
+    }
+
+    if (-not ($obj.PSObject.Properties.Name -contains "amp.url")) {
+      $obj | Add-Member -NotePropertyName "amp.url" -NotePropertyValue $ProxyUrl
+    } else {
+      $obj."amp.url" = $ProxyUrl
+    }
+
+    $obj | ConvertTo-Json -Depth 20 | Set-Content -Path $settingsPath -Encoding UTF8
+    Write-Host "Restored AMP settings: $settingsPath -> amp.url=$ProxyUrl" -ForegroundColor DarkGray
+  } catch {
+    Write-Host "Could not restore AMP settings.json: $($_.Exception.Message)" -ForegroundColor Yellow
+  }
+}
+
+$repoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+$envFile = Join-Path $repoRoot ".env"
+
+if ($Port -le 0) {
+  $rawPort = Read-Host "Nhap PORT de chay proxy (mac dinh 8081)"
+  if ([string]::IsNullOrWhiteSpace($rawPort)) {
+    $Port = 8081
+  } elseif (-not [int]::TryParse($rawPort, [ref]$Port) -or $Port -le 0) {
+    throw "PORT khong hop le"
+  }
+}
+
+$baseUrl = "http://localhost:$Port"
+
+if (-not $ApiKey) {
+  $ApiKey = Get-EnvValueFromFile -Path $envFile -Name "AMP_ACCESS_TOKEN"
+}
+if (-not $ApiKey) {
+  $ApiKey = Get-EnvValueFromFile -Path $envFile -Name "AMP_INBOUND_API_KEYS"
+  if ($ApiKey -like "*,*") {
+    $ApiKey = $ApiKey.Split(",")[0].Trim()
+  }
+}
+if (-not $ApiKey) {
+  throw "Missing API key. Pass -ApiKey or set AMP_ACCESS_TOKEN / AMP_INBOUND_API_KEYS in .env"
+}
+
+Write-Host "[info] Will set local AMP_URL/AMP_API_KEY after login succeeds." -ForegroundColor DarkGray
+Write-Host "[info] Will persist user env (setx) after login succeeds." -ForegroundColor DarkGray
+
+Write-Host "[0/5] start proxy server on PORT=$Port ..." -ForegroundColor Cyan
+$serverLogOut = Join-Path $repoRoot "amp-cli-e2e.server.out.log"
+$serverLogErr = Join-Path $repoRoot "amp-cli-e2e.server.err.log"
+$serverCmd = "Set-Location -LiteralPath '$repoRoot'; `$env:PORT='$Port'; npm start"
+
+$serverProc = Start-Process -FilePath "powershell" -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", $serverCmd) -PassThru -RedirectStandardOutput $serverLogOut -RedirectStandardError $serverLogErr
+
+$serverStarted = $false
+try {
+  if (-not (Wait-Healthz -BaseUrl $baseUrl -MaxSeconds 45)) {
+    Write-Host "Server khong len duoc. Log loi:" -ForegroundColor Red
+    if (Test-Path $serverLogErr) { Get-Content $serverLogErr -Tail 80 }
+    if (Test-Path $serverLogOut) { Get-Content $serverLogOut -Tail 40 }
+    throw "Proxy did not become healthy"
+  }
+  $serverStarted = $true
+
+  Write-Host "[1/5] healthz check..." -ForegroundColor Cyan
+  $health = Invoke-RestMethod -Method GET -Uri "$baseUrl/healthz"
+  Write-Host "healthz: $health" -ForegroundColor Green
+
+  $headers = @{ "x-api-key" = $ApiKey }
+
+  Write-Host "[2/5] configure session..." -ForegroundColor Cyan
+  $configureBody = @{ workspace_id = $WorkspaceId; provider = $Provider } | ConvertTo-Json -Depth 5
+  $cfg = Invoke-RestMethod -Method POST -Uri "$baseUrl/api/amp-cli/configure" -Headers $headers -ContentType "application/json" -Body $configureBody
+  if (-not $cfg.session_id) {
+    throw "configure did not return session_id"
+  }
+
+  $sessionId = $cfg.session_id
+  Write-Host "session_id: $sessionId" -ForegroundColor Green
+  Write-Host "state: $($cfg.state)" -ForegroundColor Yellow
+
+  Write-Host "[3/5] start login..." -ForegroundColor Cyan
+  $startBody = @{ session_id = $sessionId } | ConvertTo-Json
+  $start = Invoke-RestMethod -Method POST -Uri "$baseUrl/api/amp-cli/start" -Headers $headers -ContentType "application/json" -Body $startBody
+  Write-Host "start state: $($start.state)" -ForegroundColor Yellow
+
+  Write-Host "[4/5] polling status..." -ForegroundColor Cyan
+  Write-Host "Neu thay login_url script se mo browser. Neu co auth_code thi copy code do de paste vao trang login." -ForegroundColor DarkYellow
+  $terminal = @("authenticated", "failed", "expired")
+  $final = $null
+  $openedLoginUrl = $false
+
+  for ($i = 0; $i -lt $MaxPoll; $i++) {
+    $st = Invoke-RestMethod -Method GET -Uri "$baseUrl/api/amp-cli/status?session_id=$sessionId" -Headers $headers
+    $now = Get-Date -Format "HH:mm:ss"
+    $line = "[$now] state=$($st.state) message=$($st.message)"
+
+    if ($st.metadata -and $st.metadata.login_url) {
+      $line = "$line login_url=$($st.metadata.login_url)"
+      if (-not $openedLoginUrl) {
+        $openedLoginUrl = $true
+        if ($OpenBrowserFromScript) {
+          try {
+            Start-Process $st.metadata.login_url | Out-Null
+            Write-Host "Opened browser URL: $($st.metadata.login_url)" -ForegroundColor Cyan
+          } catch {
+            Write-Host "Khong mo duoc browser tu dong. Mo tay URL: $($st.metadata.login_url)" -ForegroundColor Yellow
+          }
+        } else {
+          Write-Host "Login URL: $($st.metadata.login_url)" -ForegroundColor Cyan
+          Write-Host "Mo URL nay 1 lan duy nhat tren browser de tranh double-open." -ForegroundColor DarkYellow
+        }
+      }
+    }
+
+    if ($st.metadata -and $st.metadata.auth_code) {
+      Write-Host "Authentication Code: $($st.metadata.auth_code)" -ForegroundColor Yellow
+      try {
+        Set-Clipboard -Value $st.metadata.auth_code
+        Write-Host "Da copy auth code vao clipboard." -ForegroundColor DarkYellow
+      } catch {
+        # clipboard can fail in non-interactive hosts
+      }
+    }
+
+    Write-Host $line -ForegroundColor Gray
+
+    if ($terminal -contains $st.state) {
+      $final = $st
+      break
+    }
+
+    Start-Sleep -Seconds $PollIntervalSec
+  }
+
+  if (-not $final) {
+    throw "Polling timed out after $MaxPoll checks"
+  }
+
+  Write-Host "[5/5] done. Final state: $($final.state)" -ForegroundColor Green
+
+  if ($final.state -eq "authenticated") {
+    $env:AMP_URL = $baseUrl
+    $env:AMP_API_KEY = $ApiKey
+    Write-Host "Set local env: AMP_URL=$baseUrl" -ForegroundColor DarkGray
+    Write-Host "Set local env: AMP_API_KEY=***" -ForegroundColor DarkGray
+
+    Set-AmpSettingsUrl -ProxyUrl $baseUrl
+
+    try {
+      setx AMP_URL $baseUrl | Out-Null
+      setx AMP_API_KEY $ApiKey | Out-Null
+      Write-Host "Persisted user env with setx (effective for new terminals)." -ForegroundColor DarkGray
+    } catch {
+      Write-Host "Could not persist user env via setx: $($_.Exception.Message)" -ForegroundColor Yellow
+    }
+  }
+
+  $final | ConvertTo-Json -Depth 10
+}
+finally {
+  if ($serverProc -and -not $serverProc.HasExited -and $StopServerWhenDone) {
+    Write-Host "Stopping proxy server..." -ForegroundColor DarkGray
+    Stop-Process -Id $serverProc.Id -Force
+  }
+
+  if ($serverStarted -and $serverProc -and -not $serverProc.HasExited -and -not $StopServerWhenDone) {
+    Write-Host "Proxy server vẫn đang chạy (PID=$($serverProc.Id)). Dùng Stop-Process -Id $($serverProc.Id) khi cần dừng." -ForegroundColor DarkGray
+  }
+}

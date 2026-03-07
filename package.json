@@ -6,7 +6,7 @@
   "main": "main.cjs",
   "scripts": {
     "start": "node main.cjs",
-    "amp-login": "node scripts/amp-login.js"
+    "amp-login": "powershell -ExecutionPolicy Bypass -File amp-cli-e2e.ps1"
   },
   "dependencies": {
     "dotenv": "^17.3.1",
