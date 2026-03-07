@@ -90,7 +90,7 @@ powershell -ExecutionPolicy Bypass -File .\amp-cli-e2e.ps1
 
 Script sẽ thực hiện:
 1. **Logout** session cũ (unset `AMP_URL`, `AMP_API_KEY` trước khi logout)
-2. Hỏi PORT (mặc định 8081)
+2. Hỏi PORT (mặc định 8080)
 3. Khởi động proxy server
 4. Tạo session login qua API
 5. Chạy `amp login`, mở browser để xác thực
@@ -100,7 +100,7 @@ Script sẽ thực hiện:
 Tham số tuỳ chọn:
 
 ```powershell
-.\amp-cli-e2e.ps1 -Port 8081 -ApiKey "your-key" -OpenBrowserFromScript -StopServerWhenDone
+.\amp-cli-e2e.ps1 -Port 8080 -ApiKey "your-key" -OpenBrowserFromScript -StopServerWhenDone
 ```
 
 | Tham số | Mô tả |
