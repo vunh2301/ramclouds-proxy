@@ -5,7 +5,8 @@
   "type": "commonjs",
   "main": "main.cjs",
   "scripts": {
-    "start": "node main.cjs"
+    "start": "node main.cjs",
+    "amp-login": "node scripts/amp-login.js"
   },
   "dependencies": {
     "dotenv": "^17.3.1",

@@ -1,124 +1,245 @@
-# Ramclouds Cursor Proxy
+# Ramclouds Proxy
 
-## Proxy này dùng để làm gì
-`ramclouds-proxy` là proxy cục bộ nhận request theo kiểu OpenAI/Cursor rồi chuyển tiếp sang endpoint Claude-compatible của Ramclouds. Mục tiêu của README này là giúp bạn cài đặt, cấu hình và chạy proxy mà không cần đọc mã nguồn.
+Proxy cuc bo nhan request tu Cursor va AMP CLI, chuyen tiep sang endpoint Claude-compatible cua Ramclouds. Ho tro model mapping, fallback chain, va nhieu provider format (Anthropic Messages API, OpenAI Chat/Responses API).
 
-## Yêu cầu
-- Node.js `>= 18`
-- Một API key hợp lệ cho upstream Claude-compatible
+## Yeu cau
+- Node.js >= 18
+- API key hop le cho upstream (Ramclouds)
+- (Tuy chon) AMP CLI (`@anthropic-ai/amp`) de dung voi AMP
 
-## Cài đặt
-```powershell
+## Cai dat
+
+```bash
 npm install
 ```
 
-## Cấu hình môi trường
-Bạn có thể đặt biến môi trường trực tiếp trong PowerShell hoặc khai báo trong file `.env`.
+## Cau hinh moi truong
 
-### Biến bắt buộc
-- `PORT`: cổng local của proxy. Nếu không đổi, ứng dụng sẽ chạy trên `8080`.
-- `PROVIDER_BASE_URL`: base URL của endpoint Claude-compatible upstream.
-- `PROVIDER_API_KEY`: API key dùng để gọi upstream.
+Tao file `.env` (copy tu `.examble.env`) hoac set bien moi truong truc tiep.
 
-Ví dụ tối thiểu an toàn trong PowerShell:
-```powershell
-$env:PORT="8080"
-$env:PROVIDER_BASE_URL="https://example.com/v1"
-$env:PROVIDER_API_KEY="sk-demo"
+### Bien bat buoc
+
+| Bien | Mo ta | Vi du |
+|------|-------|-------|
+| `PORT` | Cong local | `8080` |
+| `PROVIDER_BASE_URL` | Base URL upstream | `https://ramclouds.me/v1` |
+| `PROVIDER_API_KEY` | API key upstream | `sk-...` |
+
+### Bien thuong dung
+
+| Bien | Mac dinh | Mo ta |
+|------|----------|-------|
+| `THINKING_BUDGET` | `4096` | Token danh cho thinking |
+| `RAM_SOFT_LIMIT_TOKENS` | `185000` | Nguong mem toi uu context |
+| `RAM_HARD_LIMIT_TOKENS` | `188000` | Nguong cung gioi han context |
+| `KEEP_LAST_MESSAGES` | `12` | So message gan nhat giu lai |
+| `SUMMARY_MAX_TOKENS` | `900` | Token toi da cho tom tat |
+| `SANITIZE_SYSTEM` | `1` | Rut gon system prompt |
+| `TRIM_TOOLS` | `1` | Rut gon tool description |
+| `DEFAULT_MODEL` | `claude-opus-4-5` | Model mac dinh khi khong chi dinh |
+
+### Anh xa model (Cursor)
+
+```bash
+# Map model alias -> model that
+EXTRA_MODEL_MAP='{"claude-opus-4.6-thinking":"claude-opus-4.6-CL","gpt-5.4":"gpt-5.4"}'
+
+# Legacy map (merge voi EXTRA_MODEL_MAP)
+MODEL_MAP_JSON='{"claude-4.6-opus":"claude-opus-4.6-CL"}'
 ```
 
-### Biến thường dùng
-- `THINKING_BUDGET`: số token dành cho thinking.
-- `RAM_SOFT_LIMIT_TOKENS`: ngưỡng mềm để bắt đầu tối ưu context.
-- `RAM_HARD_LIMIT_TOKENS`: ngưỡng cứng để tránh vượt giới hạn context.
-- `KEEP_LAST_MESSAGES`: số message gần nhất được ưu tiên giữ lại.
-- `SUMMARY_MAX_TOKENS`: số token tối đa cho phần tóm tắt lịch sử cũ.
-- `SANITIZE_SYSTEM`: bật hoặc tắt việc rút gọn system prompt trước khi gửi upstream.
-- `TRIM_TOOLS`: bật hoặc tắt việc rút gọn mô tả tool trước khi gửi upstream.
+## Chay proxy
 
-Ví dụ cấu hình đầy đủ hơn:
-```powershell
-$env:PORT="8080"
-$env:PROVIDER_BASE_URL="https://example.com/v1"
-$env:PROVIDER_API_KEY="sk-demo"
-$env:THINKING_BUDGET="4096"
-$env:RAM_SOFT_LIMIT_TOKENS="185000"
-$env:RAM_HARD_LIMIT_TOKENS="188000"
-$env:KEEP_LAST_MESSAGES="12"
-$env:SUMMARY_MAX_TOKENS="900"
-$env:SANITIZE_SYSTEM="1"
-$env:TRIM_TOOLS="1"
-```
-
-### Ánh xạ model tùy chọn
-Nếu muốn ánh xạ model mà Cursor gửi lên sang model upstream khác, bạn có thể dùng `EXTRA_MODEL_MAP`.
-
-Ví dụ:
-```powershell
-$env:EXTRA_MODEL_MAP='{"claude-opus-4.6-thinking":"claude-opus-4.6-CL"}'
-```
-
-Biến này là tùy chọn. Nếu không khai báo, proxy sẽ dùng model nhận từ client hoặc ánh xạ mặc định đã có trong mã nguồn.
-
-Không đưa API key thật vào `README.md`, `.env` mẫu, ảnh chụp màn hình hoặc commit lên nơi công khai.
-
-## Chạy ứng dụng
-Sau khi cấu hình biến môi trường, chạy:
-
-```powershell
+```bash
 npm start
 ```
 
-Theo `package.json`, đây là cách khởi động chính thức của dự án và sẽ chạy `node run.cjs`.
+Proxy lang nghe tai `http://localhost:8080` (hoac port da cau hinh).
 
-Nếu giữ nguyên `PORT=8080`, proxy sẽ lắng nghe tại `http://localhost:8080`.
+## Dung voi Cursor
 
-## Dùng với Cursor
-### 1) Chạy Cloudflare để lấy URL HTTPS
-Sau khi proxy đã chạy bằng `npm start`, mở thêm một terminal khác và chạy:
+1. Chay proxy: `npm start`
+2. (Tuy chon) Chay Cloudflare tunnel de co HTTPS:
+   ```bash
+   cloudflared tunnel --url http://localhost:8080
+   ```
+3. Trong Cursor, vao cau hinh OpenAI:
+   - **Base URL**: `http://localhost:8080` hoac URL Cloudflare
+   - **API Key**: nhap gia tri bat ky (proxy dung `PROVIDER_API_KEY` phia server)
+4. Chon model de dung
 
-```powershell
-cloudflared tunnel --url http://localhost:8080
+## Dung voi AMP CLI
+
+### 1) Cai dat AMP CLI
+
+```bash
+npm install -g @anthropic-ai/amp
 ```
 
-Cloudflare sẽ trả về một URL dạng `https://xxxxx.trycloudflare.com`.
+### 2) Dang nhap AMP
 
-Hãy giữ terminal này chạy và copy đúng URL có `https` để dùng trong Cursor.
-
-### 2) Add vào OpenAI API Key trên Cursor
-Trong Cursor, vào phần cấu hình OpenAI hoặc OpenAI-compatible rồi nhập:
-- OpenAI Base URL: dán URL HTTPS vừa lấy từ Cloudflare
-- OpenAI API Key: nhập key bất kỳ cũng được
-
-Ví dụ:
-- Base URL: `https://xxxxx.trycloudflare.com`
-- API Key: `abc123`
-
-Proxy sẽ dùng `PROVIDER_API_KEY` ở phía server để gọi upstream, nên phần key trong Cursor chỉ cần có giá trị là được.
-
-### 3) Chọn model để dùng
-- Nếu muốn dùng **Opus 4.6 có thinking**: chọn `opus ram CL`
-- Nếu muốn dùng **GPT-4.5**: chọn `gpt-4.5 ram`
-
-## Kiểm tra nhanh
-Sau khi ứng dụng chạy, bạn có thể kiểm tra endpoint sức khỏe:
-
-```text
-GET /healthz
+```bash
+npm run amp-login
 ```
 
-Nếu chạy local mặc định, URL kiểm tra là `http://localhost:8080/healthz`.
+Lenh nay se:
+- Logout session cu (neu co)
+- Chay `amp login` tro den `ampcode.com`
+- Mo browser de xac thuc
+- Luu credentials vao file secrets local
 
-Ví dụ kiểm tra nhanh trong PowerShell:
-```powershell
-Invoke-WebRequest http://localhost:8080/healthz
+Sau khi login thanh cong, proxy tu dong doc credentials tu file secrets.
+
+### 3) Cau hinh AMP CLI tro vao proxy
+
+Tao hoac sua file cau hinh AMP CLI:
+
+**Windows**: `%APPDATA%\amp\settings.json`
+**Linux/Mac**: `~/.config/amp/settings.json`
+
+```json
+{
+  "provider": {
+    "name": "custom",
+    "baseUrl": "http://localhost:8080/api"
+  }
+}
 ```
 
-## Tóm tắt luồng sử dụng
-1. Cài Node.js 18 trở lên.
-2. Chạy `npm install`.
-3. Khai báo `PORT`, `PROVIDER_BASE_URL`, `PROVIDER_API_KEY`.
-4. Chạy `npm start`.
-5. Chạy Cloudflare và lấy URL `https://...trycloudflare.com`.
-6. Dán URL đó vào OpenAI Base URL trong Cursor, nhập API key bất kỳ.
-7. Chọn model `opus ram CL` hoặc `gpt-4.5 ram` để dùng.
+Hoac dung bien moi truong:
+
+```bash
+export AMP_API_URL=http://localhost:8080/api
+```
+
+### 4) Chay AMP
+
+```bash
+amp
+```
+
+AMP CLI se gui request qua proxy, proxy chuyen tiep sang Ramclouds voi model mapping va fallback chain.
+
+## AMP Model Mapping
+
+### File cau hinh: `amp-models.jsonc`
+
+AMP CLI co model map rieng, doc lap voi Cursor. Cau hinh trong file `amp-models.jsonc` tai thu muc goc:
+
+```jsonc
+{
+    // Format: "role/incoming_model": ["primary", "fallback1", "fallback2", ...]
+
+    // Smart: agent chinh
+    "smart/claude-opus-4-6": ["claude-opus-4.6-CL", "gpt-5.4", "gpt-5.3-codex", "glm-5"],
+
+    // Rush: agent nhanh
+    "rush/claude-haiku-4-5-20251001": ["claude-opus-4.6-CL", "gpt-5.4", "gpt-5.3-codex", "glm-5"],
+
+    // Deep: deep reasoning
+    "deep/gpt-5.3-codex": ["claude-opus-4.6-CL", "gpt-5.4", "gpt-5.3-codex", "glm-5"],
+
+    // Oracle: subagent phuc tap
+    "oracle/gpt-5.4": ["claude-opus-4.6-CL", "gpt-5.4", "gpt-5.3-codex", "glm-5"],
+
+    // Librarian: subagent nghien cuu
+    "librarian/claude-sonnet-4-6": ["claude-opus-4.6-CL", "gpt-5.4", "gpt-5.3-codex", "glm-5"]
+}
+```
+
+**Giai thich format**:
+- `role`: vai tro trong AMP (smart, rush, deep, oracle, librarian, search, review, ...)
+- `incoming_model`: model name AMP CLI gui len
+- Array: danh sach model thu lan luot. Model dau la primary, con lai la fallback
+
+### Fallback chain
+
+Khi model primary bi loi (429/500/502/503/504), proxy tu dong thu model tiep theo trong chain:
+
+```
+Request -> claude-opus-4.6-CL (429) -> gpt-5.4 (200) OK
+```
+
+**Smart fallback**: Model bi loi duoc danh dau DOWN, cac request tiep theo skip model do va goi thang model dang hoat dong. Background probe chay moi 30s de kiem tra model da hoi phuc chua.
+
+Bien cau hinh fallback:
+
+| Bien | Mac dinh | Mo ta |
+|------|----------|-------|
+| `AMP_MODEL_DOWN_TTL_MS` | `120000` | Thoi gian model bi danh dau DOWN (2 phut) |
+| `AMP_MODEL_PROBE_INTERVAL_MS` | `30000` | Khoang cach giua cac lan probe (30s) |
+
+### Banner thong bao fallback
+
+Khi fallback xay ra, proxy chen 1 thong bao vao dau response:
+
+```
+[smart] 🔴 ~~claude-opus-4.6-CL~~ → 🟢 **gpt-5.4** → ⚪ gpt-5.3-codex → ⚪ glm-5
+```
+
+- 🟢 **model** = model dang su dung (in dam)
+- 🔴 ~~model~~ = model bi loi (gach ngang)
+- ⚪ model = fallback chua dung
+
+Banner chi hien 1 lan khi fallback xay ra, khong lap lai moi request.
+
+## AMP Management Proxy
+
+Proxy co the thay the `cliproxyapi` (Go proxy) de xu ly toan bo AMP CLI request.
+
+### Bien cau hinh
+
+| Bien | Mac dinh | Mo ta |
+|------|----------|-------|
+| `AMP_PROXY_ENABLED` | `0` | Bat/tat reverse proxy `/api/*` |
+| `AMP_BASE_URL` | | Base URL upstream AMP (vd: `https://ampcode.com`) |
+| `AMP_INBOUND_API_KEYS` | | Key client AMP CLI duoc phep goi vao (phan tach dau phay) |
+| `AMP_REQUIRE_LOCALHOST` | `0` | Chi cho phep goi tu localhost |
+| `AMP_UPSTREAM_API_KEY` | | Key inject server-side khi forward len AMP upstream |
+| `AMP_TIMEOUT_MS` | `60000` | Timeout cho upstream request |
+
+### Route duoc reverse-proxy
+
+- `/api/auth`, `/api/user`, `/api/threads`, `/api/meta`, `/api/telemetry`
+- `/api/provider/*` (model routing voi AMP model map)
+- `/threads`, `/auth`, `/docs`, `/settings` (root-level)
+
+## AMP CLI Login Orchestrator
+
+Ngoai `npm run amp-login` (chay truc tiep), proxy con co HTTP API de dieu phoi login tu xa:
+
+| Bien | Mac dinh | Mo ta |
+|------|----------|-------|
+| `AMP_CLI_ENABLED` | `0` | Bat/tat nhanh `/api/amp-cli/*` |
+| `AMP_CLI_COMMAND` | `amp` | Lenh CLI chay login |
+| `AMP_CLI_LOGIN_TIMEOUT_MS` | `480000` | Hard timeout (8 phut) |
+| `AMP_CLI_MAX_CONCURRENT` | `1` | So login dong thoi |
+
+Flow:
+1. `POST /api/amp-cli/configure` → tao session, nhan `session_id`
+2. `POST /api/amp-cli/start` voi `session_id` → bat dau `amp login`
+3. `GET /api/amp-cli/status?session_id=...` → poll trang thai
+
+## Kiem tra nhanh
+
+```bash
+curl http://localhost:8080/healthz
+# => ok
+```
+
+## Tom tat luong su dung
+
+### Cursor
+1. `npm install`
+2. Cau hinh `.env` (PORT, PROVIDER_BASE_URL, PROVIDER_API_KEY)
+3. `npm start`
+4. Tro Cursor vao `http://localhost:8080`
+
+### AMP CLI
+1. `npm install`
+2. Cau hinh `.env` (them AMP_PROXY_ENABLED=1, AMP_BASE_URL, AMP_INBOUND_API_KEYS)
+3. `npm run amp-login` (dang nhap AMP)
+4. Cau hinh `amp-models.jsonc` (model mapping + fallback)
+5. Cau hinh AMP CLI settings tro vao `http://localhost:8080/api`
+6. `npm start`
+7. Chay `amp` trong terminal

@@ -1,0 +1,47 @@
+{
+    // ===== AMP CLI Model Map =====
+    // Format: "agent_role/incoming_model": ["primary", "fallback1", "fallback2", ...]
+    // - agent_role: ten vai tro trong AMP (chi de doc, khong anh huong logic)
+    // - incoming_model: model name ma AMP CLI gui len proxy
+    // - array: danh sach model thu lan luot, neu model dau loi (429/500/502) thi thu model tiep theo
+    //
+    // AMP Agent Models: https://ampcode.com/models
+
+    // --- Main Agents ---
+    // Smart: Claude Opus 4.6 — state-of-the-art, general coding
+    "smart/claude-opus-4-6": ["claude-opus-4.6-CL", "gpt-5.4", "gpt-5.3-codex", "glm-5"],
+
+    // Rush: Claude Haiku 4.5 — fast, small tasks
+    "rush/claude-haiku-4-5-20251001": ["claude-opus-4.6-CL", "gpt-5.4", "gpt-5.3-codex", "glm-5"],
+
+    // Deep: GPT-5.3 Codex — deep reasoning, extended thinking
+    "deep/gpt-5.3-codex": ["claude-opus-4.6-CL", "gpt-5.4", "gpt-5.3-codex", "glm-5"],
+
+    // --- Subagents ---
+    // Oracle: GPT-5.4 — complex reasoning & planning
+    "oracle/gpt-5.4": ["claude-opus-4.6-CL", "gpt-5.4", "gpt-5.3-codex", "glm-5"],
+
+    // Librarian: Claude Sonnet 4.6 — large-scale retrieval & research
+    "librarian/claude-sonnet-4-6": ["claude-opus-4.6-CL", "gpt-5.4", "gpt-5.3-codex", "glm-5"],
+
+    // Search: Gemini 3 Flash — fast codebase retrieval
+    "search/gemini-3-flash": ["claude-opus-4.6-CL", "gpt-5.4", "gpt-5.3-codex", "glm-5"],
+
+    // --- Feature Models ---
+    // Review: Gemini 3 Pro — code review & bug detection
+    "review/gemini-3-pro": ["claude-opus-4.6-CL", "gpt-5.4", "gpt-5.3-codex", "glm-5"],
+    "review/gemini-3-pro-preview": ["claude-opus-4.6-CL", "gpt-5.4", "gpt-5.3-codex", "glm-5"],
+
+    // --- System Models ---
+    // LookAt: Gemini 3 Flash — image/PDF analysis
+    "lookat/gemini-3-flash-preview": ["claude-opus-4.6-CL", "gpt-5.4", "gpt-5.3-codex", "glm-5"],
+
+    // Painter: Gemini 3 Pro Image — image generation
+    "painter/gemini-3-pro-image": ["claude-opus-4.6-CL", "gpt-5.4", "gpt-5.3-codex", "glm-5"],
+
+    // Handoff: Gemini 3 Flash — fallback context analysis
+    "handoff/gemini-3-flash": ["claude-opus-4.6-CL", "gpt-5.4", "gpt-5.3-codex", "glm-5"],
+
+    // Titling: Claude Haiku 4.5 — thread title generation
+    "titling/claude-haiku-4-5": ["claude-opus-4.6-CL", "gpt-5.4", "gpt-5.3-codex", "glm-5"]
+}
