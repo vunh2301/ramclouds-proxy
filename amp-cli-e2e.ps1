@@ -98,9 +98,9 @@ $repoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $envFile = Join-Path $repoRoot ".env"
 
 if ($Port -le 0) {
-  $rawPort = Read-Host "Nhap PORT de chay proxy (mac dinh 8081)"
+  $rawPort = Read-Host "Nhap PORT de chay proxy (mac dinh 8080)"
   if ([string]::IsNullOrWhiteSpace($rawPort)) {
-    $Port = 8081
+    $Port = 8080
   } elseif (-not [int]::TryParse($rawPort, [ref]$Port) -or $Port -le 0) {
     throw "PORT khong hop le"
   }
@@ -121,10 +121,26 @@ if (-not $ApiKey) {
   throw "Missing API key. Pass -ApiKey or set AMP_ACCESS_TOKEN / AMP_INBOUND_API_KEYS in .env"
 }
 
-Write-Host "[info] Will set local AMP_URL/AMP_API_KEY after login succeeds." -ForegroundColor DarkGray
-Write-Host "[info] Will persist user env (setx) after login succeeds." -ForegroundColor DarkGray
+Write-Host "[info] Se set AMP_URL/AMP_API_KEY sau khi login thanh cong." -ForegroundColor DarkGray
+Write-Host "[info] Se luu env vinh vien (setx) sau khi login thanh cong." -ForegroundColor DarkGray
 
-Write-Host "[0/5] start proxy server on PORT=$Port ..." -ForegroundColor Cyan
+# Logout session cu truoc khi login (unset env de tranh conflict)
+Write-Host "[0/6] Logout session cu..." -ForegroundColor Cyan
+$savedAmpUrl = $env:AMP_URL
+$savedAmpApiKey = $env:AMP_API_KEY
+try {
+  $env:AMP_URL = $null
+  $env:AMP_API_KEY = $null
+  $logoutResult = & amp logout 2>&1
+  Write-Host "Logout: $logoutResult" -ForegroundColor DarkGray
+} catch {
+  Write-Host "Logout skipped (amp chua cai hoac khong co session cu)" -ForegroundColor DarkGray
+} finally {
+  $env:AMP_URL = $savedAmpUrl
+  $env:AMP_API_KEY = $savedAmpApiKey
+}
+
+Write-Host "[1/6] Khoi dong proxy server tren PORT=$Port ..." -ForegroundColor Cyan
 $serverLogOut = Join-Path $repoRoot "amp-cli-e2e.server.out.log"
 $serverLogErr = Join-Path $repoRoot "amp-cli-e2e.server.err.log"
 $serverCmd = "Set-Location -LiteralPath '$repoRoot'; `$env:PORT='$Port'; npm start"
@@ -141,13 +157,13 @@ try {
   }
   $serverStarted = $true
 
-  Write-Host "[1/5] healthz check..." -ForegroundColor Cyan
+  Write-Host "[2/6] Kiem tra healthz..." -ForegroundColor Cyan
   $health = Invoke-RestMethod -Method GET -Uri "$baseUrl/healthz"
   Write-Host "healthz: $health" -ForegroundColor Green
 
   $headers = @{ "x-api-key" = $ApiKey }
 
-  Write-Host "[2/5] configure session..." -ForegroundColor Cyan
+  Write-Host "[3/6] Tao session login..." -ForegroundColor Cyan
   $configureBody = @{ workspace_id = $WorkspaceId; provider = $Provider } | ConvertTo-Json -Depth 5
   $cfg = Invoke-RestMethod -Method POST -Uri "$baseUrl/api/amp-cli/configure" -Headers $headers -ContentType "application/json" -Body $configureBody
   if (-not $cfg.session_id) {
@@ -158,13 +174,13 @@ try {
   Write-Host "session_id: $sessionId" -ForegroundColor Green
   Write-Host "state: $($cfg.state)" -ForegroundColor Yellow
 
-  Write-Host "[3/5] start login..." -ForegroundColor Cyan
+  Write-Host "[4/6] Bat dau login..." -ForegroundColor Cyan
   $startBody = @{ session_id = $sessionId } | ConvertTo-Json
   $start = Invoke-RestMethod -Method POST -Uri "$baseUrl/api/amp-cli/start" -Headers $headers -ContentType "application/json" -Body $startBody
   Write-Host "start state: $($start.state)" -ForegroundColor Yellow
 
-  Write-Host "[4/5] polling status..." -ForegroundColor Cyan
-  Write-Host "Neu thay login_url script se mo browser. Neu co auth_code thi copy code do de paste vao trang login." -ForegroundColor DarkYellow
+  Write-Host "[5/6] Theo doi trang thai..." -ForegroundColor Cyan
+  Write-Host "Khi thay login_url, script se mo browser. Neu co auth_code thi copy code do paste vao trang login." -ForegroundColor DarkYellow
   $terminal = @("authenticated", "failed", "expired")
   $final = $null
   $openedLoginUrl = $false
@@ -216,7 +232,7 @@ try {
     throw "Polling timed out after $MaxPoll checks"
   }
 
-  Write-Host "[5/5] done. Final state: $($final.state)" -ForegroundColor Green
+  Write-Host "[6/6] Hoan tat. Trang thai: $($final.state)" -ForegroundColor Green
 
   if ($final.state -eq "authenticated") {
     $env:AMP_URL = $baseUrl

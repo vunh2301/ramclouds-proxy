@@ -1,157 +1,159 @@
 # Ramclouds Proxy
 
-Proxy cuc bo nhan request tu Cursor va AMP CLI, chuyen tiep sang endpoint Claude-compatible cua Ramclouds. Ho tro model mapping, fallback chain, va nhieu provider format (Anthropic Messages API, OpenAI Chat/Responses API).
+Proxy cục bộ nhận request từ Cursor và AMP CLI, chuyển tiếp sang endpoint Claude-compatible của Ramclouds. Hỗ trợ model mapping, fallback chain, và nhiều provider format (Anthropic Messages API, OpenAI Chat/Responses API).
 
-## Yeu cau
+## Yêu cầu
 - Node.js >= 18
-- API key hop le cho upstream (Ramclouds)
-- (Tuy chon) AMP CLI (`@anthropic-ai/amp`) de dung voi AMP
+- API key hợp lệ cho upstream (Ramclouds)
+- (Tuỳ chọn) AMP CLI (`@anthropic-ai/amp`) để dùng với AMP
 
-## Cai dat
+## Cài đặt
 
 ```bash
 npm install
 ```
 
-## Cau hinh moi truong
+## Cấu hình môi trường
 
-Tao file `.env` (copy tu `.examble.env`) hoac set bien moi truong truc tiep.
+Tạo file `.env` (copy từ `.examble.env`) hoặc set biến môi trường trực tiếp.
 
-### Bien bat buoc
+### Biến bắt buộc
 
-| Bien | Mo ta | Vi du |
+| Biến | Mô tả | Ví dụ |
 |------|-------|-------|
-| `PORT` | Cong local | `8080` |
+| `PORT` | Cổng local | `8080` |
 | `PROVIDER_BASE_URL` | Base URL upstream | `https://ramclouds.me/v1` |
 | `PROVIDER_API_KEY` | API key upstream | `sk-...` |
 
-### Bien thuong dung
+### Biến thường dùng
 
-| Bien | Mac dinh | Mo ta |
+| Biến | Mặc định | Mô tả |
 |------|----------|-------|
-| `THINKING_BUDGET` | `4096` | Token danh cho thinking |
-| `RAM_SOFT_LIMIT_TOKENS` | `185000` | Nguong mem toi uu context |
-| `RAM_HARD_LIMIT_TOKENS` | `188000` | Nguong cung gioi han context |
-| `KEEP_LAST_MESSAGES` | `12` | So message gan nhat giu lai |
-| `SUMMARY_MAX_TOKENS` | `900` | Token toi da cho tom tat |
-| `SANITIZE_SYSTEM` | `1` | Rut gon system prompt |
-| `TRIM_TOOLS` | `1` | Rut gon tool description |
-| `DEFAULT_MODEL` | `claude-opus-4-5` | Model mac dinh khi khong chi dinh |
+| `THINKING_BUDGET` | `4096` | Token dành cho thinking |
+| `RAM_SOFT_LIMIT_TOKENS` | `185000` | Ngưỡng mềm tối ưu context |
+| `RAM_HARD_LIMIT_TOKENS` | `188000` | Ngưỡng cứng giới hạn context |
+| `KEEP_LAST_MESSAGES` | `12` | Số message gần nhất giữ lại |
+| `SUMMARY_MAX_TOKENS` | `900` | Token tối đa cho tóm tắt |
+| `SANITIZE_SYSTEM` | `1` | Rút gọn system prompt |
+| `TRIM_TOOLS` | `1` | Rút gọn tool description |
+| `DEFAULT_MODEL` | `claude-opus-4-5` | Model mặc định khi không chỉ định |
 
-### Anh xa model (Cursor)
+### Ánh xạ model (Cursor)
 
 ```bash
-# Map model alias -> model that
+# Map model alias -> model thật
 EXTRA_MODEL_MAP='{"claude-opus-4.6-thinking":"claude-opus-4.6-CL","gpt-5.4":"gpt-5.4"}'
 
-# Legacy map (merge voi EXTRA_MODEL_MAP)
+# Legacy map (merge với EXTRA_MODEL_MAP)
 MODEL_MAP_JSON='{"claude-4.6-opus":"claude-opus-4.6-CL"}'
 ```
 
-## Chay proxy
+## Chạy proxy
 
 ```bash
 npm start
 ```
 
-Proxy lang nghe tai `http://localhost:8080` (hoac port da cau hinh).
+Proxy lắng nghe tại `http://localhost:8080` (hoặc port đã cấu hình).
 
-## Dung voi Cursor
+## Dùng với Cursor
 
-1. Chay proxy: `npm start`
-2. (Tuy chon) Chay Cloudflare tunnel de co HTTPS:
+1. Chạy proxy: `npm start`
+2. (Tuỳ chọn) Chạy Cloudflare tunnel để có HTTPS:
    ```bash
    cloudflared tunnel --url http://localhost:8080
    ```
-3. Trong Cursor, vao cau hinh OpenAI:
-   - **Base URL**: `http://localhost:8080` hoac URL Cloudflare
-   - **API Key**: nhap gia tri bat ky (proxy dung `PROVIDER_API_KEY` phia server)
-4. Chon model de dung
+3. Trong Cursor, vào cấu hình OpenAI:
+   - **Base URL**: `http://localhost:8080` hoặc URL Cloudflare
+   - **API Key**: nhập giá trị bất kỳ (proxy dùng `PROVIDER_API_KEY` phía server)
+4. Chọn model để dùng
 
-## Dung voi AMP CLI
+## Dùng với AMP CLI
 
-### 1) Cai dat AMP CLI
+### 1) Cài đặt AMP CLI
 
 ```bash
 npm install -g @anthropic-ai/amp
 ```
 
-### 2) Dang nhap AMP
+### 2) Đăng nhập AMP
 
 ```powershell
 npm run amp-login
 ```
 
-Hoac chay truc tiep:
+Hoặc chạy trực tiếp:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File amp-cli-e2e.ps1
+powershell -ExecutionPolicy Bypass -File .\amp-cli-e2e.ps1
 ```
 
-Script se:
-1. Hoi PORT (mac dinh 8081)
-2. Khoi dong proxy server
-3. Tao session login qua API
-4. Chay `amp login`, mo browser de xac thuc
-5. Poll trang thai, hien auth code (tu copy vao clipboard)
-6. Khi thanh cong: set `AMP_URL`, `AMP_API_KEY` vao env + `settings.json`
+Script sẽ thực hiện:
+1. **Logout** session cũ (unset `AMP_URL`, `AMP_API_KEY` trước khi logout)
+2. Hỏi PORT (mặc định 8081)
+3. Khởi động proxy server
+4. Tạo session login qua API
+5. Chạy `amp login`, mở browser để xác thực
+6. Poll trạng thái, hiện auth code (tự copy vào clipboard)
+7. Khi thành công: set `AMP_URL`, `AMP_API_KEY` vào env + `settings.json`
 
-Tham so tuy chon:
+Tham số tuỳ chọn:
 
 ```powershell
 .\amp-cli-e2e.ps1 -Port 8081 -ApiKey "your-key" -OpenBrowserFromScript -StopServerWhenDone
 ```
 
-| Tham so | Mo ta |
+| Tham số | Mô tả |
 |---------|-------|
-| `-Port` | Port chay proxy (mac dinh hoi khi chay) |
-| `-ApiKey` | Inbound API key (doc tu .env neu khong truyen) |
-| `-OpenBrowserFromScript` | Tu dong mo browser |
-| `-StopServerWhenDone` | Tat proxy sau khi login xong |
-| `-PollIntervalSec` | Khoang cach poll (mac dinh 2s) |
-| `-MaxPoll` | So lan poll toi da (mac dinh 180) |
+| `-Port` | Port chạy proxy (mặc định hỏi khi chạy) |
+| `-ApiKey` | Inbound API key (đọc từ .env nếu không truyền) |
+| `-OpenBrowserFromScript` | Tự động mở browser |
+| `-StopServerWhenDone` | Tắt proxy sau khi login xong |
+| `-PollIntervalSec` | Khoảng cách poll (mặc định 2s) |
+| `-MaxPoll` | Số lần poll tối đa (mặc định 180) |
 
-### 3) Cau hinh AMP CLI tro vao proxy
+### 3) Cấu hình AMP CLI trỏ vào proxy
 
-Tao hoac sua file cau hinh AMP CLI:
+Tạo hoặc sửa file cấu hình AMP CLI:
 
 **Windows**: `%APPDATA%\amp\settings.json`
 **Linux/Mac**: `~/.config/amp/settings.json`
 
 ```json
 {
-  "provider": {
-    "name": "custom",
-    "baseUrl": "http://localhost:8080/api"
-  }
+  "amp.url": "http://localhost:8080"
 }
 ```
 
-Hoac dung bien moi truong:
+Hoặc dùng biến môi trường:
 
-```bash
-export AMP_API_URL=http://localhost:8080/api
+```powershell
+$env:AMP_URL = "http://localhost:8080"
+# Hoặc dùng setx để lưu vĩnh viễn:
+setx AMP_URL "http://localhost:8080"
 ```
 
-### 4) Chay AMP
+> Script `amp-login` tự động set `settings.json` và `setx` sau khi login thành công.
+
+### 4) Chạy AMP
 
 ```bash
 amp
 ```
 
-AMP CLI se gui request qua proxy, proxy chuyen tiep sang Ramclouds voi model mapping va fallback chain.
+AMP CLI sẽ gửi request qua proxy, proxy chuyển tiếp sang Ramclouds với model mapping và fallback chain.
 
 ## AMP Model Mapping
 
-### File cau hinh: `amp-models.jsonc`
+### File cấu hình: `amp-models.jsonc`
 
-AMP CLI co model map rieng, doc lap voi Cursor. Cau hinh trong file `amp-models.jsonc` tai thu muc goc:
+AMP CLI có model map riêng, độc lập với Cursor. Cấu hình trong file `amp-models.jsonc` tại thư mục gốc:
 
 ```jsonc
 {
     // Format: "role/incoming_model": ["primary", "fallback1", "fallback2", ...]
 
-    // Smart: agent chinh
+    // Smart: agent chính
     "smart/claude-opus-4-6": ["claude-opus-4.6-CL", "gpt-5.4", "gpt-5.3-codex", "glm-5"],
 
     // Rush: agent nhanh
@@ -160,107 +162,104 @@ AMP CLI co model map rieng, doc lap voi Cursor. Cau hinh trong file `amp-models.
     // Deep: deep reasoning
     "deep/gpt-5.3-codex": ["claude-opus-4.6-CL", "gpt-5.4", "gpt-5.3-codex", "glm-5"],
 
-    // Oracle: subagent phuc tap
+    // Oracle: subagent phức tạp
     "oracle/gpt-5.4": ["claude-opus-4.6-CL", "gpt-5.4", "gpt-5.3-codex", "glm-5"],
 
-    // Librarian: subagent nghien cuu
+    // Librarian: subagent nghiên cứu
     "librarian/claude-sonnet-4-6": ["claude-opus-4.6-CL", "gpt-5.4", "gpt-5.3-codex", "glm-5"]
 }
 ```
 
-**Giai thich format**:
-- `role`: vai tro trong AMP (smart, rush, deep, oracle, librarian, search, review, ...)
-- `incoming_model`: model name AMP CLI gui len
-- Array: danh sach model thu lan luot. Model dau la primary, con lai la fallback
+**Giải thích format**:
+- `role`: vai trò trong AMP (smart, rush, deep, oracle, librarian, search, review, ...)
+- `incoming_model`: model name mà AMP CLI gửi lên
+- Array: danh sách model thử lần lượt. Model đầu là primary, còn lại là fallback
 
 ### Fallback chain
 
-Khi model primary bi loi (429/500/502/503/504), proxy tu dong thu model tiep theo trong chain:
+Khi model primary bị lỗi (429/500/502/503/504), proxy tự động thử model tiếp theo trong chain:
 
 ```
-Request -> claude-opus-4.6-CL (429) -> gpt-5.4 (200) OK
+Request → claude-opus-4.6-CL (429) → gpt-5.4 (200) OK
 ```
 
-**Smart fallback**: Model bi loi duoc danh dau DOWN, cac request tiep theo skip model do va goi thang model dang hoat dong. Background probe chay moi 30s de kiem tra model da hoi phuc chua.
+**Smart fallback**: Model bị lỗi được đánh dấu DOWN, các request tiếp theo skip model đó và gọi thẳng model đang hoạt động. Background probe chạy mỗi 30s để kiểm tra model đã hồi phục chưa.
 
-Bien cau hinh fallback:
-
-| Bien | Mac dinh | Mo ta |
+| Biến | Mặc định | Mô tả |
 |------|----------|-------|
-| `AMP_MODEL_DOWN_TTL_MS` | `120000` | Thoi gian model bi danh dau DOWN (2 phut) |
-| `AMP_MODEL_PROBE_INTERVAL_MS` | `30000` | Khoang cach giua cac lan probe (30s) |
+| `AMP_MODEL_DOWN_TTL_MS` | `120000` | Thời gian model bị đánh dấu DOWN (2 phút) |
+| `AMP_MODEL_PROBE_INTERVAL_MS` | `30000` | Khoảng cách giữa các lần probe (30s) |
 
-### Banner thong bao fallback
+### Banner thông báo fallback
 
-Khi fallback xay ra, proxy chen 1 thong bao vao dau response:
+Khi fallback xảy ra, proxy chèn 1 thông báo vào đầu response:
 
 ```
 [smart] 🔴 ~~claude-opus-4.6-CL~~ → 🟢 **gpt-5.4** → ⚪ gpt-5.3-codex → ⚪ glm-5
 ```
 
-- 🟢 **model** = model dang su dung (in dam)
-- 🔴 ~~model~~ = model bi loi (gach ngang)
-- ⚪ model = fallback chua dung
+- 🟢 **model** = model đang sử dụng (in đậm)
+- 🔴 ~~model~~ = model bị lỗi (gạch ngang)
+- ⚪ model = fallback chưa dùng
 
-Banner chi hien 1 lan khi fallback xay ra, khong lap lai moi request.
+Banner chỉ hiện 1 lần khi fallback xảy ra, không lặp lại mỗi request.
 
 ## AMP Management Proxy
 
-Proxy co the thay the `cliproxyapi` (Go proxy) de xu ly toan bo AMP CLI request.
+Proxy có thể thay thế `cliproxyapi` (Go proxy) để xử lý toàn bộ AMP CLI request.
 
-### Bien cau hinh
+### Biến cấu hình
 
-| Bien | Mac dinh | Mo ta |
+| Biến | Mặc định | Mô tả |
 |------|----------|-------|
-| `AMP_PROXY_ENABLED` | `0` | Bat/tat reverse proxy `/api/*` |
+| `AMP_PROXY_ENABLED` | `0` | Bật/tắt reverse proxy `/api/*` |
 | `AMP_BASE_URL` | | Base URL upstream AMP (vd: `https://ampcode.com`) |
-| `AMP_INBOUND_API_KEYS` | | Key client AMP CLI duoc phep goi vao (phan tach dau phay) |
-| `AMP_REQUIRE_LOCALHOST` | `0` | Chi cho phep goi tu localhost |
-| `AMP_UPSTREAM_API_KEY` | | Key inject server-side khi forward len AMP upstream |
+| `AMP_INBOUND_API_KEYS` | | Key client AMP CLI được phép gọi vào (phân tách dấu phẩy) |
+| `AMP_REQUIRE_LOCALHOST` | `0` | Chỉ cho phép gọi từ localhost |
+| `AMP_UPSTREAM_API_KEY` | | Key inject server-side khi forward lên AMP upstream |
 | `AMP_TIMEOUT_MS` | `60000` | Timeout cho upstream request |
 
-### Route duoc reverse-proxy
+### Route được reverse-proxy
 
 - `/api/auth`, `/api/user`, `/api/threads`, `/api/meta`, `/api/telemetry`
-- `/api/provider/*` (model routing voi AMP model map)
+- `/api/provider/*` (model routing với AMP model map)
 - `/threads`, `/auth`, `/docs`, `/settings` (root-level)
 
 ## AMP CLI Login Orchestrator
 
-Ngoai `npm run amp-login` (chay truc tiep), proxy con co HTTP API de dieu phoi login tu xa:
+Ngoài `npm run amp-login` (chạy trực tiếp), proxy còn có HTTP API để điều phối login từ xa:
 
-| Bien | Mac dinh | Mo ta |
+| Biến | Mặc định | Mô tả |
 |------|----------|-------|
-| `AMP_CLI_ENABLED` | `0` | Bat/tat nhanh `/api/amp-cli/*` |
-| `AMP_CLI_COMMAND` | `amp` | Lenh CLI chay login |
-| `AMP_CLI_LOGIN_TIMEOUT_MS` | `480000` | Hard timeout (8 phut) |
-| `AMP_CLI_MAX_CONCURRENT` | `1` | So login dong thoi |
+| `AMP_CLI_ENABLED` | `0` | Bật/tắt nhánh `/api/amp-cli/*` |
+| `AMP_CLI_COMMAND` | `amp` | Lệnh CLI chạy login |
+| `AMP_CLI_LOGIN_TIMEOUT_MS` | `480000` | Hard timeout (8 phút) |
+| `AMP_CLI_MAX_CONCURRENT` | `1` | Số login đồng thời |
 
 Flow:
-1. `POST /api/amp-cli/configure` → tao session, nhan `session_id`
-2. `POST /api/amp-cli/start` voi `session_id` → bat dau `amp login`
-3. `GET /api/amp-cli/status?session_id=...` → poll trang thai
+1. `POST /api/amp-cli/configure` → tạo session, nhận `session_id`
+2. `POST /api/amp-cli/start` với `session_id` → bắt đầu `amp login`
+3. `GET /api/amp-cli/status?session_id=...` → poll trạng thái
 
-## Kiem tra nhanh
+## Kiểm tra nhanh
 
 ```bash
 curl http://localhost:8080/healthz
 # => ok
 ```
 
-## Tom tat luong su dung
+## Tóm tắt luồng sử dụng
 
 ### Cursor
 1. `npm install`
-2. Cau hinh `.env` (PORT, PROVIDER_BASE_URL, PROVIDER_API_KEY)
+2. Cấu hình `.env` (PORT, PROVIDER_BASE_URL, PROVIDER_API_KEY)
 3. `npm start`
-4. Tro Cursor vao `http://localhost:8080`
+4. Trỏ Cursor vào `http://localhost:8080`
 
 ### AMP CLI
 1. `npm install`
-2. Cau hinh `.env` (them AMP_PROXY_ENABLED=1, AMP_BASE_URL, AMP_INBOUND_API_KEYS)
-3. `npm run amp-login` (dang nhap AMP)
-4. Cau hinh `amp-models.jsonc` (model mapping + fallback)
-5. Cau hinh AMP CLI settings tro vao `http://localhost:8080/api`
-6. `npm start`
-7. Chay `amp` trong terminal
+2. Cấu hình `.env` (thêm AMP_PROXY_ENABLED=1, AMP_BASE_URL, AMP_INBOUND_API_KEYS)
+3. `npm run amp-login` (đăng nhập AMP — tự logout cũ, login mới, set env)
+4. Cấu hình `amp-models.jsonc` (model mapping + fallback)
+5. `npm start`
+6. Chạy `amp` trong terminal
