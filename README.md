@@ -189,19 +189,19 @@ AMP CLI có model map riêng, độc lập với Cursor. Cấu hình trong file 
     // Format: "role/incoming_model": ["primary", "fallback1", "fallback2", ...]
 
     // Smart: agent chính
-    "smart/claude-opus-4-6": ["claude-opus-4.6-CL", "gpt-5.4", "gpt-5.3-codex", "glm-5"],
+    "smart/claude-opus-4-6": ["gpt-5.4", "claude-opus-4.6-CL", "gpt-5.3-codex", "glm-5"],
 
     // Rush: agent nhanh
-    "rush/claude-haiku-4-5-20251001": ["claude-opus-4.6-CL", "gpt-5.4", "gpt-5.3-codex", "glm-5"],
+    "rush/claude-haiku-4-5-20251001": ["gpt-5.4", "claude-opus-4.6-CL", "gpt-5.3-codex", "glm-5"],
 
     // Deep: deep reasoning
-    "deep/gpt-5.3-codex": ["claude-opus-4.6-CL", "gpt-5.4", "gpt-5.3-codex", "glm-5"],
+    "deep/gpt-5.3-codex": ["gpt-5.4", "claude-opus-4.6-CL", "gpt-5.3-codex", "glm-5"],
 
     // Oracle: subagent phức tạp
-    "oracle/gpt-5.4": ["claude-opus-4.6-CL", "gpt-5.4", "gpt-5.3-codex", "glm-5"],
+    "oracle/gpt-5.4": ["gpt-5.4", "claude-opus-4.6-CL", "gpt-5.3-codex", "glm-5"],
 
     // Librarian: subagent nghiên cứu
-    "librarian/claude-sonnet-4-6": ["claude-opus-4.6-CL", "gpt-5.4", "gpt-5.3-codex", "glm-5"]
+    "librarian/claude-sonnet-4-6": ["gpt-5.4", "claude-opus-4.6-CL", "gpt-5.3-codex", "glm-5"]
 }
 ```
 
@@ -215,7 +215,7 @@ AMP CLI có model map riêng, độc lập với Cursor. Cấu hình trong file 
 Khi model primary bị lỗi (429/500/502/503/504), proxy tự động thử model tiếp theo trong chain:
 
 ```
-Request → claude-opus-4.6-CL (429) → gpt-5.4 (200) OK
+Request → gpt-5.4 (429) → claude-opus-4.6-CL (200) OK
 ```
 
 **Smart fallback**: Model bị lỗi được đánh dấu DOWN, các request tiếp theo skip model đó và gọi thẳng model đang hoạt động. Background probe chạy mỗi 30s để kiểm tra model đã hồi phục chưa.
@@ -230,7 +230,7 @@ Request → claude-opus-4.6-CL (429) → gpt-5.4 (200) OK
 Khi fallback xảy ra, proxy chèn 1 thông báo vào đầu response:
 
 ```
-[smart] 🔴 ~~claude-opus-4.6-CL~~ → 🟢 **gpt-5.4** → ⚪ gpt-5.3-codex → ⚪ glm-5
+[smart] 🔴 ~~gpt-5.4~~ → 🟢 **claude-opus-4.6-CL** → ⚪ gpt-5.3-codex → ⚪ glm-5
 ```
 
 - 🟢 **model** = model đang sử dụng (in đậm)
