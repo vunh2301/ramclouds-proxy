@@ -73,7 +73,7 @@ Proxy lắng nghe tại `http://localhost:8080` (hoặc port đã cấu hình).
 ### 1) Cài đặt AMP CLI
 
 ```bash
-npm install -g @anthropic-ai/amp
+npm install -g @sourcegraph/amp
 ```
 
 ### 2) Đăng nhập AMP
