@@ -200,7 +200,7 @@ AMP CLI co model map rieng, doc lap voi Cursor. Cau hinh trong file `amp-models.
     "deep/gpt-5.3-codex": ["gpt-5.4", "claude-opus-4.6-CL", "gpt-5.3-codex", "glm-5"],
 
     // Oracle: subagent phức tạp
-    "oracle/gpt-5.4": ["gpt-5.4", "claude-opus-4.6-CL", "gpt-5.3-codex", "glm-5"],
+    "oracle/gpt-5.4": ["gpt-5.4", "gpt-5.3-codex", "gpt-5.2"],
 
     // Librarian: subagent nghiên cứu
     "librarian/claude-sonnet-4-6": ["gpt-5.4", "claude-opus-4.6-CL", "gpt-5.3-codex", "glm-5"]
