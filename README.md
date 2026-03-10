@@ -5,7 +5,7 @@ Proxy cục bộ nhận request từ Cursor và AMP CLI, chuyển tiếp sang en
 ## Yêu cầu
 - Node.js >= 18
 - API key hợp lệ cho upstream (Ramclouds)
-- (Tuỳ chọn) AMP CLI (`@anthropic-ai/amp`) để dùng với AMP
+- (Tuỳ chọn) AMP CLI (`@sourcegraph/amp`) để dùng với AMP
 
 ## Cài đặt
 
@@ -78,14 +78,26 @@ npm install -g @sourcegraph/amp
 
 ### 2) Đăng nhập AMP
 
-```powershell
+```bash
 npm run amp-login
 ```
 
-Hoặc chạy trực tiếp:
+Script tự detect OS: chạy PowerShell trên Windows, bash trên Mac/Linux.
 
+Hoặc chạy trực tiếp theo platform:
+
+**Windows:**
 ```powershell
+npm run amp-login:win
+# hoặc
 powershell -ExecutionPolicy Bypass -File .\amp-cli-e2e.ps1
+```
+
+**Mac/Linux:**
+```bash
+npm run amp-login:mac
+# hoặc
+bash ./amp-cli-e2e.sh
 ```
 
 Script sẽ thực hiện:
@@ -97,7 +109,7 @@ Script sẽ thực hiện:
 6. Poll trạng thái, hiện auth code (tự copy vào clipboard)
 7. Khi thành công: set `AMP_URL`, `AMP_API_KEY` vào env + `settings.json`
 
-Tham số tuỳ chọn:
+#### Tham số (Windows — PowerShell)
 
 ```powershell
 .\amp-cli-e2e.ps1 -Port 8080 -ApiKey "your-key" -OpenBrowserFromScript -StopServerWhenDone
@@ -112,12 +124,27 @@ Tham số tuỳ chọn:
 | `-PollIntervalSec` | Khoảng cách poll (mặc định 2s) |
 | `-MaxPoll` | Số lần poll tối đa (mặc định 180) |
 
+#### Tham số (Mac/Linux — Bash)
+
+```bash
+bash ./amp-cli-e2e.sh [API_KEY] [WORKSPACE_ID] [PROVIDER] [--open-browser] [--stop-server]
+```
+
+| Tham số | Mô tả |
+|---------|-------|
+| `API_KEY` (arg 1) | Inbound API key (đọc từ .env nếu không truyền) |
+| `WORKSPACE_ID` (arg 2) | Workspace ID (mặc định `ws-local`) |
+| `PROVIDER` (arg 3) | Provider (mặc định `amp`) |
+| `--open-browser` | Tự động mở browser |
+| `--stop-server` | Tắt proxy sau khi login xong |
+
 ### 3) Cấu hình AMP CLI trỏ vào proxy
 
 Tạo hoặc sửa file cấu hình AMP CLI:
 
-**Windows**: `%APPDATA%\amp\settings.json`
-**Linux/Mac**: `~/.config/amp/settings.json`
+- **Windows**: `%APPDATA%\amp\settings.json`
+- **Mac**: `~/Library/Application Support/amp/settings.json`
+- **Linux**: `~/.config/amp/settings.json`
 
 ```json
 {
@@ -127,13 +154,21 @@ Tạo hoặc sửa file cấu hình AMP CLI:
 
 Hoặc dùng biến môi trường:
 
+**Windows (PowerShell):**
 ```powershell
 $env:AMP_URL = "http://localhost:8080"
-# Hoặc dùng setx để lưu vĩnh viễn:
+# Lưu vĩnh viễn:
 setx AMP_URL "http://localhost:8080"
 ```
 
-> Script `amp-login` tự động set `settings.json` và `setx` sau khi login thành công.
+**Mac/Linux (Bash):**
+```bash
+export AMP_URL="http://localhost:8080"
+# Lưu vĩnh viễn (tự thêm vào ~/.zshrc hoặc ~/.bashrc):
+echo 'export AMP_URL="http://localhost:8080"' >> ~/.zshrc
+```
+
+> Script `amp-login` tự động set `settings.json` và persist env sau khi login thành công (Windows: `setx`, Mac/Linux: `~/.zshrc` hoặc `~/.bashrc`).
 
 ### 4) Chạy AMP
 
