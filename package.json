@@ -6,7 +6,9 @@
   "main": "main.cjs",
   "scripts": {
     "start": "node main.cjs",
-    "amp-login": "powershell -ExecutionPolicy Bypass -File .\\amp-cli-e2e.ps1"
+    "amp-login": "node -e \"const p=process.platform==='win32'?'powershell -ExecutionPolicy Bypass -File .\\\\amp-cli-e2e.ps1':'bash ./amp-cli-e2e.sh';require('child_process').execSync(p,{stdio:'inherit'})\"",
+    "amp-login:win": "powershell -ExecutionPolicy Bypass -File .\\amp-cli-e2e.ps1",
+    "amp-login:mac": "bash ./amp-cli-e2e.sh"
   },
   "dependencies": {
     "dotenv": "^17.3.1",

@@ -1,0 +1,264 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# --- Config ---
+API_KEY="${1:-}"
+WORKSPACE_ID="${2:-ws-local}"
+PROVIDER="${3:-amp}"
+POLL_INTERVAL=2
+MAX_POLL=180
+PORT=0
+STOP_SERVER_WHEN_DONE=false
+OPEN_BROWSER=false
+
+# Parse flags
+for arg in "$@"; do
+  case "$arg" in
+    --stop-server) STOP_SERVER_WHEN_DONE=true ;;
+    --open-browser) OPEN_BROWSER=true ;;
+  esac
+done
+
+REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
+ENV_FILE="$REPO_ROOT/.env"
+
+# --- Helpers ---
+get_env_value() {
+  local file="$1" name="$2"
+  if [[ ! -f "$file" ]]; then return; fi
+  grep -E "^${name}=" "$file" 2>/dev/null | head -1 | sed "s/^${name}=//" | sed 's/^"//;s/"$//' | xargs
+}
+
+wait_healthz() {
+  local base_url="$1" max_seconds="${2:-45}"
+  for ((i=0; i<max_seconds; i++)); do
+    if curl -sf --max-time 3 "$base_url/healthz" 2>/dev/null | grep -q "ok"; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
+
+set_amp_settings_url() {
+  local proxy_url="$1"
+  local settings_dir settings_path
+
+  if [[ "$(uname)" == "Darwin" ]]; then
+    settings_dir="$HOME/Library/Application Support/amp"
+  else
+    settings_dir="${XDG_CONFIG_HOME:-$HOME/.config}/amp"
+  fi
+  settings_path="$settings_dir/settings.json"
+
+  mkdir -p "$settings_dir"
+
+  local obj="{}"
+  if [[ -f "$settings_path" ]]; then
+    obj=$(cat "$settings_path" 2>/dev/null || echo "{}")
+    if ! echo "$obj" | python3 -m json.tool >/dev/null 2>&1; then
+      obj="{}"
+    fi
+  fi
+
+  # Use python3 (available on macOS) to update JSON
+  obj=$(echo "$obj" | python3 -c "
+import sys, json
+obj = json.load(sys.stdin)
+obj['amp.url'] = '$proxy_url'
+print(json.dumps(obj, indent=2))
+")
+  echo "$obj" > "$settings_path"
+  echo -e "\033[90mRestored AMP settings: $settings_path -> amp.url=$proxy_url\033[0m"
+}
+
+persist_env_var() {
+  local name="$1" value="$2"
+  local shell_rc
+
+  if [[ -n "${ZSH_VERSION:-}" ]] || [[ "$SHELL" == */zsh ]]; then
+    shell_rc="$HOME/.zshrc"
+  else
+    shell_rc="$HOME/.bashrc"
+  fi
+
+  # Remove old entry if exists, then append
+  if [[ -f "$shell_rc" ]]; then
+    grep -v "^export ${name}=" "$shell_rc" > "$shell_rc.tmp" || true
+    mv "$shell_rc.tmp" "$shell_rc"
+  fi
+  echo "export ${name}=\"${value}\"" >> "$shell_rc"
+}
+
+cleanup() {
+  if [[ -n "${SERVER_PID:-}" ]] && kill -0 "$SERVER_PID" 2>/dev/null; then
+    if $STOP_SERVER_WHEN_DONE; then
+      echo -e "\033[90mStopping proxy server (PID=$SERVER_PID)...\033[0m"
+      kill "$SERVER_PID" 2>/dev/null || true
+    else
+      echo -e "\033[90mProxy server van dang chay (PID=$SERVER_PID). Dung 'kill $SERVER_PID' khi can dung.\033[0m"
+    fi
+  fi
+}
+trap cleanup EXIT
+
+# --- Main ---
+
+# Get port
+if [[ $PORT -le 0 ]]; then
+  read -rp "Nhap PORT de chay proxy (mac dinh 8080): " raw_port
+  PORT="${raw_port:-8080}"
+  if ! [[ "$PORT" =~ ^[0-9]+$ ]] || [[ "$PORT" -le 0 ]]; then
+    echo "PORT khong hop le" >&2; exit 1
+  fi
+fi
+
+BASE_URL="http://localhost:$PORT"
+
+# Get API key
+if [[ -z "$API_KEY" ]]; then
+  API_KEY=$(get_env_value "$ENV_FILE" "AMP_ACCESS_TOKEN")
+fi
+if [[ -z "$API_KEY" ]]; then
+  API_KEY=$(get_env_value "$ENV_FILE" "AMP_INBOUND_API_KEYS")
+  API_KEY="${API_KEY%%,*}"  # take first key
+fi
+if [[ -z "$API_KEY" ]]; then
+  echo "Missing API key. Pass as arg or set AMP_ACCESS_TOKEN / AMP_INBOUND_API_KEYS in .env" >&2
+  exit 1
+fi
+
+echo -e "\033[90m[info] Se set AMP_URL/AMP_API_KEY sau khi login thanh cong.\033[0m"
+echo -e "\033[90m[info] Se luu env vinh vien (~/.zshrc hoac ~/.bashrc) sau khi login thanh cong.\033[0m"
+
+# [0/6] Logout old session
+echo -e "\033[36m[0/6] Logout session cu...\033[0m"
+saved_amp_url="${AMP_URL:-}"
+saved_amp_api_key="${AMP_API_KEY:-}"
+unset AMP_URL AMP_API_KEY 2>/dev/null || true
+amp logout 2>&1 || echo -e "\033[90mLogout skipped (amp chua cai hoac khong co session cu)\033[0m"
+export AMP_URL="$saved_amp_url"
+export AMP_API_KEY="$saved_amp_api_key"
+
+# [1/6] Start proxy server
+echo -e "\033[36m[1/6] Khoi dong proxy server tren PORT=$PORT ...\033[0m"
+SERVER_LOG_OUT="$REPO_ROOT/amp-cli-e2e.server.out.log"
+SERVER_LOG_ERR="$REPO_ROOT/amp-cli-e2e.server.err.log"
+
+cd "$REPO_ROOT"
+PORT=$PORT npm start > "$SERVER_LOG_OUT" 2> "$SERVER_LOG_ERR" &
+SERVER_PID=$!
+
+if ! wait_healthz "$BASE_URL" 45; then
+  echo -e "\033[31mServer khong len duoc. Log loi:\033[0m"
+  tail -80 "$SERVER_LOG_ERR" 2>/dev/null || true
+  tail -40 "$SERVER_LOG_OUT" 2>/dev/null || true
+  exit 1
+fi
+
+# [2/6] Health check
+echo -e "\033[36m[2/6] Kiem tra healthz...\033[0m"
+health=$(curl -sf "$BASE_URL/healthz")
+echo -e "\033[32mhealthz: $health\033[0m"
+
+# [3/6] Create login session
+echo -e "\033[36m[3/6] Tao session login...\033[0m"
+cfg=$(curl -sf -X POST "$BASE_URL/api/amp-cli/configure" \
+  -H "x-api-key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "{\"workspace_id\":\"$WORKSPACE_ID\",\"provider\":\"$PROVIDER\"}")
+
+session_id=$(echo "$cfg" | python3 -c "import sys,json; print(json.load(sys.stdin).get('session_id',''))")
+if [[ -z "$session_id" ]]; then
+  echo "configure did not return session_id" >&2; exit 1
+fi
+
+state=$(echo "$cfg" | python3 -c "import sys,json; print(json.load(sys.stdin).get('state',''))")
+echo -e "\033[32msession_id: $session_id\033[0m"
+echo -e "\033[33mstate: $state\033[0m"
+
+# [4/6] Start login
+echo -e "\033[36m[4/6] Bat dau login...\033[0m"
+start_resp=$(curl -sf -X POST "$BASE_URL/api/amp-cli/start" \
+  -H "x-api-key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "{\"session_id\":\"$session_id\"}")
+start_state=$(echo "$start_resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('state',''))")
+echo -e "\033[33mstart state: $start_state\033[0m"
+
+# [5/6] Poll status
+echo -e "\033[36m[5/6] Theo doi trang thai...\033[0m"
+echo -e "\033[33mKhi thay login_url, script se mo browser. Neu co auth_code thi copy code do paste vao trang login.\033[0m"
+
+opened_login_url=false
+final_state=""
+
+for ((i=0; i<MAX_POLL; i++)); do
+  st=$(curl -sf "$BASE_URL/api/amp-cli/status?session_id=$session_id" -H "x-api-key: $API_KEY")
+  now=$(date +%H:%M:%S)
+  state=$(echo "$st" | python3 -c "import sys,json; print(json.load(sys.stdin).get('state',''))")
+  message=$(echo "$st" | python3 -c "import sys,json; print(json.load(sys.stdin).get('message',''))")
+  login_url=$(echo "$st" | python3 -c "import sys,json; d=json.load(sys.stdin); m=d.get('metadata',{}); print(m.get('login_url','') if m else '')")
+  auth_code=$(echo "$st" | python3 -c "import sys,json; d=json.load(sys.stdin); m=d.get('metadata',{}); print(m.get('auth_code','') if m else '')")
+
+  line="[$now] state=$state message=$message"
+
+  if [[ -n "$login_url" ]]; then
+    line="$line login_url=$login_url"
+    if ! $opened_login_url; then
+      opened_login_url=true
+      if $OPEN_BROWSER; then
+        if [[ "$(uname)" == "Darwin" ]]; then
+          open "$login_url" 2>/dev/null && echo -e "\033[36mOpened browser URL: $login_url\033[0m" || true
+        else
+          xdg-open "$login_url" 2>/dev/null && echo -e "\033[36mOpened browser URL: $login_url\033[0m" || true
+        fi
+      else
+        echo -e "\033[36mLogin URL: $login_url\033[0m"
+        echo -e "\033[33mMo URL nay 1 lan duy nhat tren browser de tranh double-open.\033[0m"
+      fi
+    fi
+  fi
+
+  if [[ -n "$auth_code" ]]; then
+    echo -e "\033[33mAuthentication Code: $auth_code\033[0m"
+    if [[ "$(uname)" == "Darwin" ]]; then
+      echo -n "$auth_code" | pbcopy 2>/dev/null && echo -e "\033[33mDa copy auth code vao clipboard.\033[0m" || true
+    else
+      echo -n "$auth_code" | xclip -selection clipboard 2>/dev/null && echo -e "\033[33mDa copy auth code vao clipboard.\033[0m" || true
+    fi
+  fi
+
+  echo -e "\033[90m$line\033[0m"
+
+  case "$state" in
+    authenticated|failed|expired)
+      final_state="$state"
+      break
+      ;;
+  esac
+
+  sleep $POLL_INTERVAL
+done
+
+if [[ -z "$final_state" ]]; then
+  echo "Polling timed out after $MAX_POLL checks" >&2; exit 1
+fi
+
+# [6/6] Done
+echo -e "\033[32m[6/6] Hoan tat. Trang thai: $final_state\033[0m"
+
+if [[ "$final_state" == "authenticated" ]]; then
+  export AMP_URL="$BASE_URL"
+  export AMP_API_KEY="$API_KEY"
+  echo -e "\033[90mSet local env: AMP_URL=$BASE_URL\033[0m"
+  echo -e "\033[90mSet local env: AMP_API_KEY=***\033[0m"
+
+  set_amp_settings_url "$BASE_URL"
+
+  persist_env_var "AMP_URL" "$BASE_URL"
+  persist_env_var "AMP_API_KEY" "$API_KEY"
+  echo -e "\033[90mPersisted env to shell rc (effective for new terminals).\033[0m"
+fi
+
+echo "$st" | python3 -m json.tool
