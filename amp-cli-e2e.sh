@@ -25,8 +25,10 @@ ENV_FILE="$REPO_ROOT/.env"
 # --- Helpers ---
 get_env_value() {
   local file="$1" name="$2"
-  if [[ ! -f "$file" ]]; then return; fi
-  grep -E "^${name}=" "$file" 2>/dev/null | head -1 | sed "s/^${name}=//" | sed 's/^"//;s/"$//' | xargs
+  if [[ ! -f "$file" ]]; then echo ""; return; fi
+  local val
+  val=$(grep -E "^${name}=" "$file" 2>/dev/null | head -1 | sed "s/^${name}=//" | sed 's/^"//;s/"$//' | tr -d '\r' | xargs) || true
+  echo "$val"
 }
 
 wait_healthz() {
@@ -38,6 +40,51 @@ wait_healthz() {
     sleep 1
   done
   return 1
+}
+
+# curl wrapper: returns body, shows error on failure
+api_call() {
+  local method="$1" url="$2"
+  shift 2
+  local http_code body tmpfile
+  tmpfile=$(mktemp)
+  http_code=$(curl -s -o "$tmpfile" -w "%{http_code}" -X "$method" "$url" \
+    -H "x-api-key: $API_KEY" \
+    -H "Content-Type: application/json" \
+    "$@") || {
+    echo -e "\033[31mCurl error: khong ket noi duoc toi $url\033[0m" >&2
+    rm -f "$tmpfile"
+    return 1
+  }
+  body=$(cat "$tmpfile")
+  rm -f "$tmpfile"
+
+  if [[ "$http_code" -ge 400 ]]; then
+    echo -e "\033[31mHTTP $http_code tu $url\033[0m" >&2
+    echo -e "\033[31mResponse: $body\033[0m" >&2
+    return 1
+  fi
+  echo "$body"
+}
+
+# Parse JSON field with python3
+json_get() {
+  python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+except:
+    print('')
+    sys.exit(0)
+keys = sys.argv[1].split('.')
+for k in keys:
+    if isinstance(d, dict):
+        d = d.get(k, '')
+    else:
+        d = ''
+        break
+print(d if d is not None else '')
+" "$1"
 }
 
 set_amp_settings_url() {
@@ -61,13 +108,12 @@ set_amp_settings_url() {
     fi
   fi
 
-  # Use python3 (available on macOS) to update JSON
   obj=$(echo "$obj" | python3 -c "
 import sys, json
 obj = json.load(sys.stdin)
-obj['amp.url'] = '$proxy_url'
+obj['amp.url'] = sys.argv[1]
 print(json.dumps(obj, indent=2))
-")
+" "$proxy_url")
   echo "$obj" > "$settings_path"
   echo -e "\033[90mRestored AMP settings: $settings_path -> amp.url=$proxy_url\033[0m"
 }
@@ -136,7 +182,11 @@ echo -e "\033[36m[0/6] Logout session cu...\033[0m"
 saved_amp_url="${AMP_URL:-}"
 saved_amp_api_key="${AMP_API_KEY:-}"
 unset AMP_URL AMP_API_KEY 2>/dev/null || true
-amp logout 2>&1 || echo -e "\033[90mLogout skipped (amp chua cai hoac khong co session cu)\033[0m"
+if command -v amp &>/dev/null; then
+  amp logout 2>&1 || echo -e "\033[90mLogout skipped (khong co session cu)\033[0m"
+else
+  echo -e "\033[90mLogout skipped (amp chua cai dat)\033[0m"
+fi
 export AMP_URL="$saved_amp_url"
 export AMP_API_KEY="$saved_amp_api_key"
 
@@ -158,32 +208,34 @@ fi
 
 # [2/6] Health check
 echo -e "\033[36m[2/6] Kiem tra healthz...\033[0m"
-health=$(curl -sf "$BASE_URL/healthz")
+health=$(curl -sf "$BASE_URL/healthz" || echo "FAIL")
+if [[ "$health" != "ok" ]]; then
+  echo -e "\033[31mhealthz failed: $health\033[0m"
+  exit 1
+fi
 echo -e "\033[32mhealthz: $health\033[0m"
 
 # [3/6] Create login session
 echo -e "\033[36m[3/6] Tao session login...\033[0m"
-cfg=$(curl -sf -X POST "$BASE_URL/api/amp-cli/configure" \
-  -H "x-api-key: $API_KEY" \
-  -H "Content-Type: application/json" \
+cfg=$(api_call POST "$BASE_URL/api/amp-cli/configure" \
   -d "{\"workspace_id\":\"$WORKSPACE_ID\",\"provider\":\"$PROVIDER\"}")
 
-session_id=$(echo "$cfg" | python3 -c "import sys,json; print(json.load(sys.stdin).get('session_id',''))")
+session_id=$(echo "$cfg" | json_get "session_id")
 if [[ -z "$session_id" ]]; then
-  echo "configure did not return session_id" >&2; exit 1
+  echo -e "\033[31mconfigure did not return session_id\033[0m" >&2
+  echo -e "\033[31mResponse: $cfg\033[0m" >&2
+  exit 1
 fi
 
-state=$(echo "$cfg" | python3 -c "import sys,json; print(json.load(sys.stdin).get('state',''))")
+state=$(echo "$cfg" | json_get "state")
 echo -e "\033[32msession_id: $session_id\033[0m"
 echo -e "\033[33mstate: $state\033[0m"
 
 # [4/6] Start login
 echo -e "\033[36m[4/6] Bat dau login...\033[0m"
-start_resp=$(curl -sf -X POST "$BASE_URL/api/amp-cli/start" \
-  -H "x-api-key: $API_KEY" \
-  -H "Content-Type: application/json" \
+start_resp=$(api_call POST "$BASE_URL/api/amp-cli/start" \
   -d "{\"session_id\":\"$session_id\"}")
-start_state=$(echo "$start_resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('state',''))")
+start_state=$(echo "$start_resp" | json_get "state")
 echo -e "\033[33mstart state: $start_state\033[0m"
 
 # [5/6] Poll status
@@ -192,14 +244,19 @@ echo -e "\033[33mKhi thay login_url, script se mo browser. Neu co auth_code thi 
 
 opened_login_url=false
 final_state=""
+last_st=""
 
 for ((i=0; i<MAX_POLL; i++)); do
-  st=$(curl -sf "$BASE_URL/api/amp-cli/status?session_id=$session_id" -H "x-api-key: $API_KEY")
+  st=$(api_call GET "$BASE_URL/api/amp-cli/status?session_id=$session_id" 2>/dev/null) || {
+    sleep $POLL_INTERVAL
+    continue
+  }
+  last_st="$st"
   now=$(date +%H:%M:%S)
-  state=$(echo "$st" | python3 -c "import sys,json; print(json.load(sys.stdin).get('state',''))")
-  message=$(echo "$st" | python3 -c "import sys,json; print(json.load(sys.stdin).get('message',''))")
-  login_url=$(echo "$st" | python3 -c "import sys,json; d=json.load(sys.stdin); m=d.get('metadata',{}); print(m.get('login_url','') if m else '')")
-  auth_code=$(echo "$st" | python3 -c "import sys,json; d=json.load(sys.stdin); m=d.get('metadata',{}); print(m.get('auth_code','') if m else '')")
+  state=$(echo "$st" | json_get "state")
+  message=$(echo "$st" | json_get "message")
+  login_url=$(echo "$st" | json_get "metadata.login_url")
+  auth_code=$(echo "$st" | json_get "metadata.auth_code")
 
   line="[$now] state=$state message=$message"
 
@@ -261,4 +318,6 @@ if [[ "$final_state" == "authenticated" ]]; then
   echo -e "\033[90mPersisted env to shell rc (effective for new terminals).\033[0m"
 fi
 
-echo "$st" | python3 -m json.tool
+if [[ -n "$last_st" ]]; then
+  echo "$last_st" | python3 -m json.tool 2>/dev/null || echo "$last_st"
+fi
