@@ -108,6 +108,19 @@ if ($Port -le 0) {
 
 $baseUrl = "http://localhost:$Port"
 
+# Kill process on port if occupied
+try {
+  $existingPid = (Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue).OwningProcess | Select-Object -Unique
+  if ($existingPid) {
+    Write-Host "Port $Port dang bi chiem boi PID=$existingPid. Dang kill..." -ForegroundColor Yellow
+    $existingPid | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
+    Start-Sleep -Seconds 1
+    Write-Host "Da kill process tren port $Port." -ForegroundColor Green
+  }
+} catch {
+  # best effort
+}
+
 if (-not $ApiKey) {
   $ApiKey = Get-EnvValueFromFile -Path $envFile -Name "AMP_ACCESS_TOKEN"
 }

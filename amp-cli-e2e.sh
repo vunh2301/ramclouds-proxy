@@ -170,6 +170,15 @@ fi
 
 BASE_URL="http://localhost:$PORT"
 
+# Kill process on port if occupied
+existing_pid=$(lsof -ti :"$PORT" 2>/dev/null || true)
+if [[ -n "$existing_pid" ]]; then
+  echo -e "\033[33mPort $PORT dang bi chiem boi PID=$existing_pid. Dang kill...\033[0m"
+  kill -9 $existing_pid 2>/dev/null || true
+  sleep 1
+  echo -e "\033[32mDa kill process tren port $PORT.\033[0m"
+fi
+
 # Get API key
 if [[ -z "$API_KEY" ]]; then
   API_KEY=$(get_env_value "$ENV_FILE" "AMP_ACCESS_TOKEN")
