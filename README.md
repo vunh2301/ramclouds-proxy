@@ -182,7 +182,9 @@ AMP CLI sẽ gửi request qua proxy, proxy chuyển tiếp sang Ramclouds với
 
 ### File cấu hình: `amp-models.jsonc`
 
-AMP CLI có model map riêng, độc lập với Cursor. Cấu hình trong file `amp-models.jsonc` tại thư mục gốc:
+> **Luu y:** AMP CLI route qua Responses API, yeu cau model tuong thich OpenAI (GPT). Model Anthropic (Claude) duoc convert tu dong nhung co the thieu event hoac khong ho tro day du tool calls. **Nen dung GPT lam primary model** de dam bao Oracle, Librarian va cac subagent hoat dong on dinh.
+
+AMP CLI co model map rieng, doc lap voi Cursor. Cau hinh trong file `amp-models.jsonc` tai thu muc goc:
 
 ```jsonc
 {
