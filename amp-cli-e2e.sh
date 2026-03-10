@@ -150,6 +150,15 @@ trap cleanup EXIT
 
 # --- Main ---
 
+# Check .env has AMP_CLI_ENABLED
+amp_cli_enabled=$(get_env_value "$ENV_FILE" "AMP_CLI_ENABLED")
+if [[ "$amp_cli_enabled" != "1" ]]; then
+  echo -e "\033[31m[ERROR] AMP_CLI_ENABLED khong duoc bat trong .env\033[0m"
+  echo -e "\033[33mThem dong sau vao file .env roi chay lai:\033[0m"
+  echo -e "\033[33m  echo 'AMP_CLI_ENABLED=1' >> .env\033[0m"
+  exit 1
+fi
+
 # Get port
 if [[ $PORT -le 0 ]]; then
   read -rp "Nhap PORT de chay proxy (mac dinh 8080): " raw_port
