@@ -32,9 +32,8 @@
     // Oracle: GPT-5.4 — complex reasoning & planning
     "oracle/gpt-5.4": [
         "gpt-5.4",
-        "claude-opus-4.6-CL",
         "gpt-5.3-codex",
-        "glm-5"
+        "gpt-5.2"
     ],
     // Librarian: Claude Sonnet 4.6 — large-scale retrieval & research
     "librarian/claude-sonnet-4-6": [
