@@ -337,8 +337,15 @@ try {
   if ($final.state -eq "authenticated" -and $serverProc -and -not $serverProc.HasExited) {
     Write-Host "Dang tat server ngam (PID=$($serverProc.Id)) de chay lai foreground..." -ForegroundColor Cyan
     Stop-Process -Id $serverProc.Id -Force -ErrorAction SilentlyContinue
-    Start-Sleep -Seconds 1
     $serverProc = $null  # skip finally cleanup
+    # Wait cho port free
+    for ($attempt = 1; $attempt -le 5; $attempt++) {
+      $portPid = (Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue).OwningProcess | Select-Object -Unique
+      if (-not $portPid) { break }
+      Write-Host "Port $Port van bi chiem (PID=$portPid), dang kill (lan $attempt)..." -ForegroundColor Yellow
+      $portPid | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
+      Start-Sleep -Seconds 1
+    }
     Write-Host "Khoi dong proxy foreground: PORT=$Port npm start" -ForegroundColor Cyan
     Write-Host "Nhan Ctrl+C de dung proxy." -ForegroundColor Yellow
     Set-Location -LiteralPath $repoRoot

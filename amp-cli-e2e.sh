@@ -416,8 +416,15 @@ if [[ "$final_state" == "authenticated" ]]; then
     SKIP_CLEANUP=1  # skip cleanup trap
     kill "$SERVER_PID" 2>/dev/null || true
     wait "$SERVER_PID" 2>/dev/null || true
-    sleep 1
   fi
+  # Kill moi process con chiem port (bao gom child processes)
+  for attempt in 1 2 3; do
+    port_pid=$(lsof -ti :"$PORT" 2>/dev/null || true)
+    if [[ -z "$port_pid" ]]; then break; fi
+    echo -e "\033[33mPort $PORT van bi chiem (PID=$port_pid), dang kill (lan $attempt)...\033[0m"
+    kill -9 $port_pid 2>/dev/null || true
+    sleep 1
+  done
   echo -e "\033[36mKhoi dong proxy foreground: PORT=$PORT npm start\033[0m"
   echo -e "\033[33mNhan Ctrl+C de dung proxy.\033[0m"
   cd "$REPO_ROOT"
