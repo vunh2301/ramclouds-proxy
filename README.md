@@ -278,6 +278,41 @@ Flow:
 2. `POST /api/amp-cli/start` với `session_id` → bắt đầu `amp login`
 3. `GET /api/amp-cli/status?session_id=...` → poll trạng thái
 
+## Web Search
+
+Proxy tự động intercept `web_search` / `web_search_preview` tool calls từ AMP và Cursor, thực hiện tìm kiếm server-side, rồi inject kết quả lại cho model trả lời.
+
+### Cách hoạt động
+
+1. Client gửi request có `web_search_preview` tool
+2. Proxy convert thành function tool, gửi lên upstream
+3. Khi model gọi `web_search`, proxy intercept (không gửi về client)
+4. Proxy tự search bằng backend khả dụng, inject kết quả vào conversation
+5. Gửi follow-up request để model trả lời dựa trên kết quả thực
+
+### Search backends (theo thứ tự ưu tiên)
+
+| # | Backend | Biến môi trường | Miễn phí | Ghi chú |
+|---|---------|----------------|----------|---------|
+| 1 | **Brave Search** | `BRAVE_API_KEY` | 2000 query/tháng (cần thẻ) | Chất lượng cao nhất |
+| 2 | **Serper.dev** (Google) | `SERPER_API_KEY` | 2500 query (Google account) | Kết quả Google |
+| 3 | **Google News RSS** | — | Không giới hạn | Tự động, không cần key, chỉ tin tức |
+| 4 | **DuckDuckGo HTML** | — | Không giới hạn | Hay bị rate-limit |
+| 5 | **Bing scrape** | — | Không giới hạn | Hay bị captcha |
+| 6 | **DuckDuckGo Lite** | — | Không giới hạn | Hay bị block |
+| 7 | **SearXNG** | `WEB_SEARCH_URL` | Tự host | Cần instance riêng |
+
+Proxy tự động fallback: nếu backend chính fail, thử backend tiếp theo trong chain.
+
+### Cấu hình
+
+| Biến | Mặc định | Mô tả |
+|------|----------|-------|
+| `SERPER_API_KEY` | | API key Serper.dev (khuyên dùng, free 2500 queries) |
+| `BRAVE_API_KEY` | | API key Brave Search |
+| `WEB_SEARCH_URL` | | URL instance SearXNG |
+| `WEB_SEARCH_COUNT` | `5` | Số kết quả search (1-20) |
+
 ## Kiểm tra nhanh
 
 ```bash
