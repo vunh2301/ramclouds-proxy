@@ -82,7 +82,7 @@ function Write-AmpSettingsFile {
       $obj."amp.url" = $ProxyUrl
     }
 
-    $obj | ConvertTo-Json -Depth 20 | Set-Content -Path $settingsPath -Encoding UTF8
+    $obj | ConvertTo-Json -Depth 20 | Out-String | ForEach-Object { [System.IO.File]::WriteAllText($settingsPath, $_.TrimEnd(), [System.Text.UTF8Encoding]::new($false)) }
     Write-Host "Wrote AMP settings: $settingsPath -> amp.url=$ProxyUrl" -ForegroundColor DarkGray
   } catch {
     Write-Host "Could not write $SettingsDir\settings.json: $($_.Exception.Message)" -ForegroundColor Yellow
@@ -152,7 +152,7 @@ function Copy-SecretsToken {
         $secrets | Add-Member -NotePropertyName $proxyKey -NotePropertyValue $token
       }
 
-      $secrets | ConvertTo-Json -Depth 20 | Set-Content -Path $secretsPath -Encoding UTF8
+      $secrets | ConvertTo-Json -Depth 20 | Out-String | ForEach-Object { [System.IO.File]::WriteAllText($secretsPath, $_.TrimEnd(), [System.Text.UTF8Encoding]::new($false)) }
       Write-Host "Copied token to $proxyKey in $secretsPath" -ForegroundColor DarkGray
     } catch {
       # best effort
