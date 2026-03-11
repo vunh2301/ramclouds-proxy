@@ -295,12 +295,13 @@ Proxy tự động intercept `web_search` / `web_search_preview` tool calls từ
 | # | Backend | Biến môi trường | Miễn phí | Ghi chú |
 |---|---------|----------------|----------|---------|
 | 1 | **Brave Search** | `BRAVE_API_KEY` | 2000 query/tháng (cần thẻ) | Chất lượng cao nhất |
-| 2 | **Serper.dev** (Google) | `SERPER_API_KEY` | 2500 query (Google account) | Kết quả Google |
-| 3 | **Google News RSS** | — | Không giới hạn | Tự động, không cần key, chỉ tin tức |
-| 4 | **DuckDuckGo HTML** | — | Không giới hạn | Hay bị rate-limit |
-| 5 | **Bing scrape** | — | Không giới hạn | Hay bị captcha |
-| 6 | **DuckDuckGo Lite** | — | Không giới hạn | Hay bị block |
-| 7 | **SearXNG** | `WEB_SEARCH_URL` | Tự host | Cần instance riêng |
+| 2 | **Tavily AI Search** | `TAVILY_API_KEY` | 1000 query/tháng (không cần thẻ) | Trả content sạch, AI-optimized |
+| 3 | **Serper.dev** (Google) | `SERPER_API_KEY` | 2500 query (Google account) | Kết quả Google |
+| 4 | **Google News RSS** | — | Không giới hạn | Tự động, không cần key, chỉ tin tức |
+| 5 | **DuckDuckGo HTML** | — | Không giới hạn | Hay bị rate-limit |
+| 6 | **Bing scrape** | — | Không giới hạn | Hay bị captcha |
+| 7 | **DuckDuckGo Lite** | — | Không giới hạn | Hay bị block |
+| 8 | **SearXNG** | `WEB_SEARCH_URL` | Tự host | Cần instance riêng |
 
 Proxy tự động fallback: nếu backend chính fail, thử backend tiếp theo trong chain.
 
@@ -308,7 +309,8 @@ Proxy tự động fallback: nếu backend chính fail, thử backend tiếp the
 
 | Biến | Mặc định | Mô tả |
 |------|----------|-------|
-| `SERPER_API_KEY` | | API key Serper.dev (khuyên dùng, free 2500 queries) |
+| `TAVILY_API_KEY` | | API key Tavily (khuyên dùng, free 1000/tháng, không cần thẻ) |
+| `SERPER_API_KEY` | | API key Serper.dev (free 2500 queries) |
 | `BRAVE_API_KEY` | | API key Brave Search |
 | `WEB_SEARCH_URL` | | URL instance SearXNG |
 | `WEB_SEARCH_COUNT` | `5` | Số kết quả search (1-20) |
