@@ -6,6 +6,9 @@ node_modules/
 
 # Logs
 *.log
+
+# Runtime data
+search-quota.json
 package-lock.json
 
 # OS files
