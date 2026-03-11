@@ -142,6 +142,8 @@ persist_env_var() {
 }
 
 cleanup() {
+  # Skip nếu đã exec npm start (replace process)
+  if [[ "${SKIP_CLEANUP:-}" == "1" ]]; then return; fi
   if [[ -n "${SERVER_PID:-}" ]] && kill -0 "$SERVER_PID" 2>/dev/null; then
     if $STOP_SERVER_WHEN_DONE; then
       echo -e "\033[90mStopping proxy server (PID=$SERVER_PID)...\033[0m"
@@ -343,4 +345,19 @@ fi
 
 if [[ -n "$last_st" ]]; then
   echo "$last_st" | python3 -m json.tool 2>/dev/null || echo "$last_st"
+fi
+
+# Kill background server va chay lai foreground de user thay log
+if [[ "$final_state" == "authenticated" ]]; then
+  if [[ -n "${SERVER_PID:-}" ]] && kill -0 "$SERVER_PID" 2>/dev/null; then
+    echo -e "\033[36mDang tat server ngam (PID=$SERVER_PID) de chay lai foreground...\033[0m"
+    SKIP_CLEANUP=1  # skip cleanup trap
+    kill "$SERVER_PID" 2>/dev/null || true
+    wait "$SERVER_PID" 2>/dev/null || true
+    sleep 1
+  fi
+  echo -e "\033[36mKhoi dong proxy foreground: PORT=$PORT npm start\033[0m"
+  echo -e "\033[33mNhan Ctrl+C de dung proxy.\033[0m"
+  cd "$REPO_ROOT"
+  PORT=$PORT exec npm start
 fi

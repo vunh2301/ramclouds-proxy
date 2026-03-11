@@ -273,6 +273,19 @@ try {
   }
 
   $final | ConvertTo-Json -Depth 10
+
+  # Kill background server va chay lai foreground
+  if ($final.state -eq "authenticated" -and $serverProc -and -not $serverProc.HasExited) {
+    Write-Host "Dang tat server ngam (PID=$($serverProc.Id)) de chay lai foreground..." -ForegroundColor Cyan
+    Stop-Process -Id $serverProc.Id -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 1
+    $serverProc = $null  # skip finally cleanup
+    Write-Host "Khoi dong proxy foreground: PORT=$Port npm start" -ForegroundColor Cyan
+    Write-Host "Nhan Ctrl+C de dung proxy." -ForegroundColor Yellow
+    Set-Location -LiteralPath $repoRoot
+    $env:PORT = "$Port"
+    npm start
+  }
 }
 finally {
   if ($serverProc -and -not $serverProc.HasExited -and $StopServerWhenDone) {
@@ -281,6 +294,6 @@ finally {
   }
 
   if ($serverStarted -and $serverProc -and -not $serverProc.HasExited -and -not $StopServerWhenDone) {
-    Write-Host "Proxy server vẫn đang chạy (PID=$($serverProc.Id)). Dùng Stop-Process -Id $($serverProc.Id) khi cần dừng." -ForegroundColor DarkGray
+    Write-Host "Proxy server van dang chay (PID=$($serverProc.Id)). Dung Stop-Process -Id $($serverProc.Id) khi can dung." -ForegroundColor DarkGray
   }
 }
