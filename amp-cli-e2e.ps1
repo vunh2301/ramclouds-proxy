@@ -48,21 +48,16 @@ function Wait-Healthz {
   return $false
 }
 
-function Set-AmpSettingsUrl {
+function Write-AmpSettingsFile {
   param(
+    [string]$SettingsDir,
     [string]$ProxyUrl
   )
 
   try {
-    if (-not $env:APPDATA) {
-      Write-Host "APPDATA not found; skip settings restore." -ForegroundColor Yellow
-      return
-    }
-
-    $settingsPath = Join-Path $env:APPDATA "amp\settings.json"
-    $settingsDir = Split-Path -Parent $settingsPath
-    if (-not (Test-Path $settingsDir)) {
-      New-Item -ItemType Directory -Force -Path $settingsDir | Out-Null
+    $settingsPath = Join-Path $SettingsDir "settings.json"
+    if (-not (Test-Path $SettingsDir)) {
+      New-Item -ItemType Directory -Force -Path $SettingsDir | Out-Null
     }
 
     $obj = $null
@@ -88,10 +83,23 @@ function Set-AmpSettingsUrl {
     }
 
     $obj | ConvertTo-Json -Depth 20 | Set-Content -Path $settingsPath -Encoding UTF8
-    Write-Host "Restored AMP settings: $settingsPath -> amp.url=$ProxyUrl" -ForegroundColor DarkGray
+    Write-Host "Wrote AMP settings: $settingsPath -> amp.url=$ProxyUrl" -ForegroundColor DarkGray
   } catch {
-    Write-Host "Could not restore AMP settings.json: $($_.Exception.Message)" -ForegroundColor Yellow
+    Write-Host "Could not write $SettingsDir\settings.json: $($_.Exception.Message)" -ForegroundColor Yellow
   }
+}
+
+function Set-AmpSettingsUrl {
+  param(
+    [string]$ProxyUrl
+  )
+
+  # Ghi ca APPDATA va ~/.config/amp/ de tuong thich AMP CLI moi + cu
+  if ($env:APPDATA) {
+    Write-AmpSettingsFile -SettingsDir (Join-Path $env:APPDATA "amp") -ProxyUrl $ProxyUrl
+  }
+  $xdgDir = Join-Path $HOME ".config\amp"
+  Write-AmpSettingsFile -SettingsDir $xdgDir -ProxyUrl $ProxyUrl
 }
 
 $repoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path

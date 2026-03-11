@@ -87,17 +87,9 @@ print(d if d is not None else '')
 " "$1"
 }
 
-set_amp_settings_url() {
-  local proxy_url="$1"
-  local settings_dir settings_path
-
-  if [[ "$(uname)" == "Darwin" ]]; then
-    settings_dir="$HOME/Library/Application Support/amp"
-  else
-    settings_dir="${XDG_CONFIG_HOME:-$HOME/.config}/amp"
-  fi
-  settings_path="$settings_dir/settings.json"
-
+write_settings_file() {
+  local settings_dir="$1" proxy_url="$2"
+  local settings_path="$settings_dir/settings.json"
   mkdir -p "$settings_dir"
 
   local obj="{}"
@@ -115,7 +107,20 @@ obj['amp.url'] = sys.argv[1]
 print(json.dumps(obj, indent=2))
 " "$proxy_url")
   echo "$obj" > "$settings_path"
-  echo -e "\033[90mRestored AMP settings: $settings_path -> amp.url=$proxy_url\033[0m"
+  echo -e "\033[90mWrote AMP settings: $settings_path -> amp.url=$proxy_url\033[0m"
+}
+
+set_amp_settings_url() {
+  local proxy_url="$1"
+
+  if [[ "$(uname)" == "Darwin" ]]; then
+    # AMP CLI moi dung ~/.config/amp/, cu dung ~/Library/Application Support/amp/
+    # Ghi ca hai de dam bao tuong thich
+    write_settings_file "${XDG_CONFIG_HOME:-$HOME/.config}/amp" "$proxy_url"
+    write_settings_file "$HOME/Library/Application Support/amp" "$proxy_url"
+  else
+    write_settings_file "${XDG_CONFIG_HOME:-$HOME/.config}/amp" "$proxy_url"
+  fi
 }
 
 persist_env_var() {
