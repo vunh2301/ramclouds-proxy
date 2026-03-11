@@ -102,6 +102,64 @@ function Set-AmpSettingsUrl {
   Write-AmpSettingsFile -SettingsDir $xdgDir -ProxyUrl $ProxyUrl
 }
 
+function Copy-SecretsToken {
+  param([string]$ProxyUrl)
+
+  # amp login luu token duoi "apiKey@https://ampcode.com/"
+  # amp CLI voi amp.url=http://localhost:PORT tim "apiKey@http://localhost:PORT/"
+  # -> copy token sang key localhost
+  $secretsDirs = @()
+  if ($env:LOCALAPPDATA) { $secretsDirs += Join-Path $env:LOCALAPPDATA "amp" }
+  if ($env:APPDATA) { $secretsDirs += Join-Path $env:APPDATA "amp" }
+  $secretsDirs += Join-Path $HOME ".config\amp"
+
+  $proxyKey = "apiKey@$($ProxyUrl.TrimEnd('/'))/"
+
+  foreach ($dir in $secretsDirs) {
+    $secretsPath = Join-Path $dir "secrets.json"
+    if (-not (Test-Path $secretsPath)) { continue }
+
+    try {
+      $secrets = Get-Content -Path $secretsPath -Raw | ConvertFrom-Json
+      $token = $null
+
+      # Tim token tu ampcode.com
+      foreach ($key in @("apiKey@https://ampcode.com/", "apiKey@https://ampcode.com")) {
+        if ($secrets.PSObject.Properties.Name -contains $key -and $secrets.$key) {
+          $token = $secrets.$key
+          break
+        }
+      }
+
+      # Fallback: tim bat ky apiKey@
+      if (-not $token) {
+        foreach ($prop in $secrets.PSObject.Properties) {
+          if ($prop.Name.StartsWith("apiKey@") -and $prop.Value) {
+            $token = $prop.Value
+            break
+          }
+        }
+      }
+
+      if (-not $token) { continue }
+
+      # Them key cho proxy URL
+      if ($secrets.PSObject.Properties.Name -contains $proxyKey -and $secrets.$proxyKey -eq $token) { continue }
+
+      if ($secrets.PSObject.Properties.Name -contains $proxyKey) {
+        $secrets.$proxyKey = $token
+      } else {
+        $secrets | Add-Member -NotePropertyName $proxyKey -NotePropertyValue $token
+      }
+
+      $secrets | ConvertTo-Json -Depth 20 | Set-Content -Path $secretsPath -Encoding UTF8
+      Write-Host "Copied token to $proxyKey in $secretsPath" -ForegroundColor DarkGray
+    } catch {
+      # best effort
+    }
+  }
+}
+
 $repoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $envFile = Join-Path $repoRoot ".env"
 
@@ -262,6 +320,7 @@ try {
     Write-Host "Set local env: AMP_API_KEY=***" -ForegroundColor DarkGray
 
     Set-AmpSettingsUrl -ProxyUrl $baseUrl
+    Copy-SecretsToken -ProxyUrl $baseUrl
 
     try {
       setx AMP_URL $baseUrl | Out-Null

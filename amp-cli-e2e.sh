@@ -87,6 +87,65 @@ print(d if d is not None else '')
 " "$1"
 }
 
+copy_secrets_token() {
+  # amp login luu token duoi key "apiKey@https://ampcode.com/"
+  # nhung amp CLI voi amp.url=http://localhost:PORT tim "apiKey@http://localhost:PORT/"
+  # -> copy token sang key localhost
+  local proxy_url="$1"
+  local secrets_dirs=()
+
+  if [[ "$(uname)" == "Darwin" ]]; then
+    secrets_dirs=("${XDG_CONFIG_HOME:-$HOME/.config}/amp" "$HOME/Library/Application Support/amp" "$HOME/.local/share/amp")
+  else
+    secrets_dirs=("${XDG_CONFIG_HOME:-$HOME/.config}/amp" "$HOME/.local/share/amp")
+  fi
+
+  for dir in "${secrets_dirs[@]}"; do
+    local secrets_path="$dir/secrets.json"
+    if [[ ! -f "$secrets_path" ]]; then continue; fi
+
+    python3 -c "
+import sys, json, os
+path = sys.argv[1]
+proxy_url = sys.argv[2]
+
+try:
+    with open(path) as f:
+        secrets = json.load(f)
+except:
+    sys.exit(0)
+
+# Tim token tu ampcode.com
+token = ''
+for key in ['apiKey@https://ampcode.com/', 'apiKey@https://ampcode.com']:
+    if key in secrets and secrets[key]:
+        token = secrets[key]
+        break
+
+if not token:
+    # Tim bat ky apiKey@ nao co gia tri
+    for k, v in secrets.items():
+        if k.startswith('apiKey@') and v:
+            token = v
+            break
+
+if not token:
+    sys.exit(0)
+
+# Them key cho proxy URL
+proxy_key = 'apiKey@' + proxy_url.rstrip('/') + '/'
+if secrets.get(proxy_key) == token:
+    sys.exit(0)
+
+secrets[proxy_key] = token
+with open(path, 'w') as f:
+    json.dump(secrets, f, indent=2)
+
+print(f'Copied token to {proxy_key} in {path}')
+" "$secrets_path" "$proxy_url" 2>/dev/null && continue || true
+  done
+}
+
 write_settings_file() {
   local settings_dir="$1" proxy_url="$2"
   local settings_path="$settings_dir/settings.json"
@@ -341,6 +400,9 @@ if [[ "$final_state" == "authenticated" ]]; then
   persist_env_var "AMP_URL" "$BASE_URL"
   persist_env_var "AMP_API_KEY" "$API_KEY"
   echo -e "\033[90mPersisted env to shell rc (effective for new terminals).\033[0m"
+
+  # Copy token tu apiKey@ampcode.com sang apiKey@localhost de amp CLI tim thay
+  copy_secrets_token "$BASE_URL"
 fi
 
 if [[ -n "$last_st" ]]; then
