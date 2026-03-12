@@ -370,7 +370,7 @@ Proxy tự intercept `web_search` / `web_search_preview` tool calls, tìm kiếm
 
 | # | Backend | Biến môi trường | Miễn phí | Ghi chú |
 |---|---------|----------------|----------|---------|
-| 1 | **Brave Search** | `BRAVE_API_KEY` | 2000 query/tháng (cần thẻ) | Chất lượng cao nhất |
+| 1 | **Brave Search** | `BRAVE_API_KEY` | 1000 query/tháng (cần thẻ) | Chất lượng cao nhất |
 | 2 | **Tavily AI Search** | `TAVILY_API_KEY` | 1000 query/tháng (không cần thẻ) | Trả content sạch, AI-optimized |
 | 3 | **Exa AI Search** | `EXA_API_KEY` | 1000 query/tháng (không cần thẻ) | Neural/semantic search |
 | 4 | **Serper.dev** (Google) | `SERPER_API_KEY` | 2500 query (Google account) | Kết quả Google |
