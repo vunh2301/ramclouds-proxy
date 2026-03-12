@@ -9,8 +9,8 @@
     // --- Main Agents ---
     // Smart: Claude Opus 4.6 — state-of-the-art, general coding
     "smart/claude-opus-4-6": [
-        "gpt-5.4",
         "claude-opus-4.6-CL",
+        "gpt-5.4",
         "gpt-5.3-codex",
         "glm-5"
     ],
