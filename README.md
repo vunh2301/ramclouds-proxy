@@ -48,6 +48,69 @@ EXTRA_MODEL_MAP='{"claude-opus-4.6-thinking":"claude-opus-4.6-CL","gpt-5.4":"gpt
 MODEL_MAP_JSON='{"claude-4.6-opus":"claude-opus-4.6-CL"}'
 ```
 
+## Provider Mode (OpenAI Direct)
+
+Proxy hỗ trợ gửi request trực tiếp đến OpenAI API thay vì qua ramclouds. Hữu ích khi bạn có API key OpenAI riêng và muốn dùng các tính năng native như web search.
+
+### Cấu hình
+
+| Biến | Mặc định | Mô tả |
+|------|----------|-------|
+| `PROVIDER_MODE` | `ramclouds` | Chế độ provider: `ramclouds` / `openai` / `auto` |
+| `OPENAI_API_KEY` | | API key OpenAI (bắt buộc cho mode `openai` / `auto`) |
+| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | Base URL OpenAI API |
+| `OPENAI_MODEL_MAP` | `{}` | Map model ramclouds → model OpenAI thật (JSON) |
+
+### Các chế độ
+
+| Mode | Mô tả |
+|------|-------|
+| `ramclouds` | Tất cả request qua ramclouds (mặc định, không cần `OPENAI_API_KEY`) |
+| `openai` | Tất cả model gửi thẳng OpenAI API |
+| `auto` | GPT models (`gpt-*`, `o1-*`, `chatgpt-*`) → OpenAI, còn lại → ramclouds |
+
+### Luồng xử lý
+
+```
+Request từ AMP/Cursor
+  │
+  ├─ PROVIDER_MODE=ramclouds → ramclouds (web search: Brave/DDG)
+  │
+  └─ PROVIDER_MODE=openai|auto
+       │
+       ├─ Không có web_search → Chat Completions API (/v1/chat/completions)
+       │
+       ├─ Có web_search → Responses API (/v1/responses) + web_search_preview native
+       │
+       └─ OpenAI lỗi → fallback ramclouds (web search: Brave/DDG)
+```
+
+### Model mapping 2 tầng
+
+Khi dùng mode `openai` hoặc `auto`, model đi qua 2 tầng mapping:
+
+1. **AMP model map** (`amp-models.jsonc`): `claude-opus-4-6` → `gpt-5.4`
+2. **OpenAI model map** (`OPENAI_MODEL_MAP`): `gpt-5.4` → `gpt-4o` (tuỳ chọn)
+
+Nếu key OpenAI đã có quyền truy cập trực tiếp model (vd: `gpt-5.4`), không cần `OPENAI_MODEL_MAP`.
+
+### Ví dụ cấu hình
+
+```bash
+# Gửi tất cả qua OpenAI, key có quyền truy cập gpt-5.4 trực tiếp
+PROVIDER_MODE=openai
+OPENAI_API_KEY=sk-proj-xxx
+
+# Gửi qua OpenAI nhưng map model (key chỉ có gpt-4o)
+PROVIDER_MODE=openai
+OPENAI_API_KEY=sk-proj-xxx
+OPENAI_MODEL_MAP={"gpt-5.4":"gpt-4o","gpt-5.2":"gpt-4o-mini"}
+
+# Tự động: GPT → OpenAI, Claude → ramclouds
+PROVIDER_MODE=auto
+OPENAI_API_KEY=sk-proj-xxx
+```
+
 ## Chạy proxy
 
 ```bash
@@ -280,9 +343,22 @@ Flow:
 
 ## Web Search
 
-Proxy tự động intercept `web_search` / `web_search_preview` tool calls từ AMP và Cursor, thực hiện tìm kiếm server-side, rồi inject kết quả lại cho model trả lời.
+Proxy hỗ trợ 2 chế độ web search tuỳ thuộc vào provider mode:
 
-### Cách hoạt động
+### Chế độ 1: OpenAI Native Search (khi `PROVIDER_MODE=openai|auto`)
+
+Khi request có web search tool và đang dùng OpenAI direct mode:
+
+1. Proxy gửi request qua **Responses API** (`/v1/responses`) với `web_search_preview` hosted tool
+2. OpenAI tự thực hiện search server-side (native, chất lượng cao)
+3. Model trả lời trực tiếp dựa trên kết quả search
+4. **Không cần cấu hình API key search** — OpenAI xử lý hoàn toàn
+
+> Nếu OpenAI trả lỗi → tự động fallback về chế độ 2 (proxy intercept).
+
+### Chế độ 2: Proxy Intercept (khi `PROVIDER_MODE=ramclouds` hoặc fallback)
+
+Proxy tự intercept `web_search` / `web_search_preview` tool calls, tìm kiếm qua các backend, inject kết quả lại cho model:
 
 1. Client gửi request có `web_search_preview` tool
 2. Proxy convert thành function tool, gửi lên upstream
