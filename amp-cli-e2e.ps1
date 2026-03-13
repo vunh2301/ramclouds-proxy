@@ -302,24 +302,7 @@ try {
       }
     }
 
-    # If awaiting_user for 15s+ and no auth_code, prompt user to paste from browser
-    if ($st.state -eq "awaiting_user" -and -not $st.metadata.auth_code -and -not $script:promptedCode -and $i -ge 7) {
-      Write-Host ""
-      Write-Host "Browser hien Authentication Code." -ForegroundColor Yellow
-      Write-Host "Copy code tu browser roi paste vao day:" -ForegroundColor Yellow
-      $userCode = Read-Host "Paste auth code"
-      if ($userCode) {
-        Write-Host "Submitting auth code ($($userCode.Length) chars)..." -ForegroundColor Yellow
-        try {
-          $submitBody = @{ session_id = $sessionId; code = $userCode } | ConvertTo-Json
-          Invoke-RestMethod -Uri "$BaseUrl/api/amp-cli/submit-code" -Method POST -Headers $headers -Body $submitBody -ContentType "application/json" -ErrorAction SilentlyContinue | Out-Null
-          Write-Host "Auth code submitted." -ForegroundColor Green
-        } catch {
-          Write-Host "Failed to submit code." -ForegroundColor Red
-        }
-      }
-      $script:promptedCode = $true
-    }
+    # Windows: CLI auto-verifies via browser callback, no code paste needed
 
     Write-Host $line -ForegroundColor Gray
 
