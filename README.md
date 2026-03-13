@@ -339,7 +339,97 @@ Ngoài `npm run amp-login` (chạy trực tiếp), proxy còn có HTTP API để
 Flow:
 1. `POST /api/amp-cli/configure` → tạo session, nhận `session_id`
 2. `POST /api/amp-cli/start` với `session_id` → bắt đầu `amp login`
-3. `GET /api/amp-cli/status?session_id=...` → poll trạng thái
+3. `POST /api/amp-cli/submit-code` với `session_id` + `code` → submit auth code (Mac)
+4. `GET /api/amp-cli/status?session_id=...` → poll trạng thái
+
+### Login Flow Chi Tiết
+
+```
+┌─────────────┐     ┌──────────────┐     ┌────────────┐     ┌───────────┐
+│  PS1 / Bash │────>│ Proxy Server │────>│  bun.exe   │────>│ ampcode   │
+│  (script)   │     │ (port 8080)  │     │ (amp CLI)  │     │   .com    │
+└─────────────┘     └──────────────┘     └────────────┘     └───────────┘
+      │                    │                    │                  │
+      │ POST /configure    │                    │                  │
+      │───────────────────>│                    │                  │
+      │  session_id        │                    │                  │
+      │<───────────────────│                    │                  │
+      │                    │                    │                  │
+      │ POST /start        │                    │                  │
+      │───────────────────>│ amp logout (sync)  │                  │
+      │                    │───────────────────>│                  │
+      │                    │  status=0 (~3.5s)  │                  │
+      │                    │<───────────────────│                  │
+      │                    │                    │                  │
+      │                    │ amp login (async)  │                  │
+      │                    │───────────────────>│ OAuth request    │
+      │                    │                    │─────────────────>│
+      │                    │  URL on stdout     │  authToken URL   │
+      │                    │<───────────────────│<─────────────────│
+      │                    │                    │                  │
+      │                    │ maybeOpenBrowser()  │                  │
+      │                    │──> cmd.exe start ──> Browser opens    │
+      │                    │                    │                  │
+      │ GET /status (poll) │                    │                  │
+      │───────────────────>│                    │                  │
+      │  state, login_url  │                    │  callback        │
+      │<───────────────────│                    │<─────────────────│
+      │                    │  exit code=0       │                  │
+      │                    │<───────────────────│                  │
+      │                    │                    │                  │
+      │ GET /status        │                    │                  │
+      │───────────────────>│                    │                  │
+      │  state=authenticated                    │                  │
+      │<───────────────────│                    │                  │
+```
+
+#### Windows Flow
+
+- **Auto-verify**: Browser mở → ampcode.com tự verify qua callback → không cần paste code
+- **Spawn**: `bun.exe` chạy trực tiếp (bypass batch file chain `amp.bat → amp.bat → bun.exe`)
+- **Logout**: `AMP_URL=https://ampcode.com` để logout đúng endpoint (tránh logout từ localhost)
+- **Cleanup**: `wmic process where "name='bun.exe' and CommandLine like '%amp%main.js%'" delete`
+
+#### Mac Flow
+
+- **Paste code**: Browser mở → user copy auth code từ ampcode.com → paste vào terminal
+- **Spawn**: `amp login` trực tiếp (không cần bypass)
+- **Auto-submit**: Script gửi auth code qua `POST /submit-code`
+
+### Kiến Trúc File
+
+```
+lib/amp-cli/
+├── runner.js          # Spawn & monitor amp login process
+│   ├── resolveAmpBun()     # Resolve bun.exe path (bypass .bat chain)
+│   ├── getSpawnSpec()       # Platform-aware spawn config
+│   ├── runAmpLogoutBestEffort()  # Sync logout + cleanup
+│   ├── maybeOpenBrowser()   # Open URL in default browser
+│   ├── pushChunk()          # Parse stdout: URL, auth code, state
+│   └── createAmpCliRunner() # Factory: start(), isRunning(), getChild()
+├── state.js           # In-memory session store
+│   └── States: configured → starting → awaiting_user → verifying → authenticated/failed
+└── secret.js          # Read/write amp credentials from secrets.json
+
+lib/handlers/
+└── amp-cli-login-router.js  # Express router: /configure, /start, /status, /submit-code
+
+Scripts (root):
+├── amp-cli-e2e.ps1    # Windows login script (PowerShell)
+└── amp-cli-e2e.sh     # Mac/Linux login script (Bash)
+```
+
+### Troubleshooting
+
+| Vấn đề | Nguyên nhân | Fix |
+|---------|-------------|-----|
+| Login lần 2 không mở browser | Batch file chain (`cmd.exe → amp.bat`) nuốt stdout | `resolveAmpBun()` spawn `bun.exe` trực tiếp |
+| `amp logout` không clear session | Logout sai endpoint (settings.json trỏ localhost) | Dùng `createLoginEnv()` với `AMP_URL=https://ampcode.com` |
+| Port 8080 EADDRINUSE | PM2 daemon respawn node process | Kill PM2 daemon trước: `Get-CimInstance Win32_Process \| Where CommandLine -match 'pm2[\\/]lib[\\/]Daemon'` |
+| `taskkill /F /IM amp.exe` not found | amp CLI thực tế là `bun.exe`, không phải `amp.exe` | `wmic process where "name='bun.exe' and CommandLine like '%amp%main.js%'" delete` |
+| `amp login` treo stdin | `stdio: ["pipe", ...]` + `stdin.end()` gây race | `stdio: ["ignore", "pipe", "pipe"]` |
+| Browser hiện "Auth Code" thay vì auto-verify | Thay đổi `maybeOpenBrowser` (dùng `rundll32`) | Giữ nguyên `cmd.exe start` với `windowsHide: true` |
+| `spawnSync amp logout` block server | Single-thread Node.js bị block khi logout sync | Timeout 5s + `wmic` kill fallback |
 
 ## Web Search
 

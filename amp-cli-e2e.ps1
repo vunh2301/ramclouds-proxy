@@ -174,17 +174,32 @@ if ($Port -le 0) {
 
 $baseUrl = "http://localhost:$Port"
 
-# Kill process on port if occupied
-try {
-  $existingPid = (Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue).OwningProcess | Select-Object -Unique
-  if ($existingPid) {
-    Write-Host "Port $Port dang bi chiem boi PID=$existingPid. Dang kill..." -ForegroundColor Yellow
-    $existingPid | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
-    Start-Sleep -Seconds 1
-    Write-Host "Da kill process tren port $Port." -ForegroundColor Green
+# Kill PM2 daemon truoc (PM2 se respawn node neu khong kill daemon truoc)
+$pm2Daemons = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -match 'pm2[\\/]lib[\\/]Daemon' } | Select-Object -ExpandProperty ProcessId)
+if ($pm2Daemons.Count -gt 0) {
+  Write-Host "Killing PM2 daemons (PIDs=$($pm2Daemons -join ','))..." -ForegroundColor Yellow
+  foreach ($dpid in $pm2Daemons) {
+    Stop-Process -Id $dpid -Force -ErrorAction SilentlyContinue
   }
-} catch {
-  # best effort
+  Start-Sleep -Seconds 1
+}
+
+# Kill process on port
+$portCheck = @((Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue).OwningProcess | Where-Object { $_ -and $_ -ne 0 } | Select-Object -Unique)
+if ($portCheck.Count -gt 0) {
+  Write-Host "Port $Port dang bi chiem (PIDs=$($portCheck -join ',')). Dang kill..." -ForegroundColor Yellow
+  & npx kill-port $Port 2>$null | Out-Null
+  Start-Sleep -Seconds 2
+
+  # Verify
+  $portStill = @((Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue).OwningProcess | Where-Object { $_ -and $_ -ne 0 })
+  if ($portStill.Count -eq 0) {
+    Write-Host "Da giai phong port $Port." -ForegroundColor Green
+  } else {
+    Write-Host "CANH BAO: Port $Port van bi chiem (PIDs=$($portStill -join ','))." -ForegroundColor Red
+  }
+} else {
+  Write-Host "Port $Port da san sang." -ForegroundColor Green
 }
 
 if (-not $ApiKey) {
@@ -219,12 +234,22 @@ try {
   $env:AMP_API_KEY = $savedAmpApiKey
 }
 
+# Kill tat ca amp CLI process cu (login giu port callback, logout co the hang)
+$ampProcs = @(Get-CimInstance Win32_Process -EA SilentlyContinue | Where-Object { $_.CommandLine -match '[\\/]amp(\.exe)?\s+(login|logout)' } | Select-Object -ExpandProperty ProcessId)
+if ($ampProcs.Count -gt 0) {
+  Write-Host "Killing old amp processes (PIDs=$($ampProcs -join ','))..." -ForegroundColor Yellow
+  foreach ($apid in $ampProcs) { Stop-Process -Id $apid -Force -EA SilentlyContinue }
+  Start-Sleep -Seconds 1
+}
+
 Write-Host "[1/6] Khoi dong proxy server tren PORT=$Port ..." -ForegroundColor Cyan
 $serverLogOut = Join-Path $repoRoot "amp-cli-e2e.server.out.log"
 $serverLogErr = Join-Path $repoRoot "amp-cli-e2e.server.err.log"
-$serverCmd = "Set-Location -LiteralPath '$repoRoot'; `$env:PORT='$Port'; npm start"
 
-$serverProc = Start-Process -FilePath "powershell" -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", $serverCmd) -PassThru -RedirectStandardOutput $serverLogOut -RedirectStandardError $serverLogErr
+# Start node truc tiep (khong qua powershell/npm) de chi co 1 process can kill
+$env:PORT = "$Port"
+$mainCjs = Join-Path $repoRoot "main.cjs"
+$serverProc = Start-Process -FilePath "node" -ArgumentList @($mainCjs) -WorkingDirectory $repoRoot -PassThru -RedirectStandardOutput $serverLogOut -RedirectStandardError $serverLogErr
 
 $serverStarted = $false
 try {
@@ -302,8 +327,6 @@ try {
       }
     }
 
-    # Windows: CLI auto-verifies via browser callback, no code paste needed
-
     Write-Host $line -ForegroundColor Gray
 
     if ($terminal -contains $st.state) {
@@ -341,23 +364,20 @@ try {
   $final | ConvertTo-Json -Depth 10
 
   # Kill background server va chay lai foreground
-  if ($final.state -eq "authenticated" -and $serverProc -and -not $serverProc.HasExited) {
-    Write-Host "Dang tat server ngam (PID=$($serverProc.Id)) de chay lai foreground..." -ForegroundColor Cyan
-    Stop-Process -Id $serverProc.Id -Force -ErrorAction SilentlyContinue
+  if ($final.state -eq "authenticated") {
+    # Kill PM2 daemon truoc, roi kill port
     $serverProc = $null  # skip finally cleanup
-    # Wait cho port free
-    for ($attempt = 1; $attempt -le 5; $attempt++) {
-      $portPid = (Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue).OwningProcess | Select-Object -Unique
-      if (-not $portPid) { break }
-      Write-Host "Port $Port van bi chiem (PID=$portPid), dang kill (lan $attempt)..." -ForegroundColor Yellow
-      $portPid | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
-      Start-Sleep -Seconds 1
-    }
-    Write-Host "Khoi dong proxy foreground: PORT=$Port npm start" -ForegroundColor Cyan
+    Write-Host "Dang giai phong port $Port..." -ForegroundColor Cyan
+    $pm2d = @(Get-CimInstance Win32_Process -EA SilentlyContinue | Where-Object { $_.CommandLine -match 'pm2[\\/]lib[\\/]Daemon' } | Select-Object -ExpandProperty ProcessId)
+    foreach ($dpid in $pm2d) { Stop-Process -Id $dpid -Force -EA SilentlyContinue }
+    & npx kill-port $Port 2>$null | Out-Null
+    Start-Sleep -Seconds 2
+
+    Write-Host "Khoi dong proxy foreground: PORT=$Port node main.cjs" -ForegroundColor Cyan
     Write-Host "Nhan Ctrl+C de dung proxy." -ForegroundColor Yellow
     Set-Location -LiteralPath $repoRoot
     $env:PORT = "$Port"
-    npm start
+    node $mainCjs
   }
 }
 finally {

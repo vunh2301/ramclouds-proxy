@@ -267,12 +267,21 @@ saved_amp_url="${AMP_URL:-}"
 saved_amp_api_key="${AMP_API_KEY:-}"
 unset AMP_URL AMP_API_KEY 2>/dev/null || true
 if command -v amp &>/dev/null; then
-  amp logout 2>&1 || echo -e "\033[90mLogout skipped (khong co session cu)\033[0m"
+  logout_out=$(amp logout 2>&1) || true
+  echo -e "\033[90mLogout: ${logout_out:-skipped}\033[0m"
 else
   echo -e "\033[90mLogout skipped (amp chua cai dat)\033[0m"
 fi
-export AMP_URL="$saved_amp_url"
-export AMP_API_KEY="$saved_amp_api_key"
+export AMP_URL="${saved_amp_url:-}"
+export AMP_API_KEY="${saved_amp_api_key:-}"
+
+# Kill old amp login/logout processes (giu callback port, co the hang)
+old_amp_pids=$(pgrep -f 'amp.*(login|logout)' 2>/dev/null || true)
+if [[ -n "$old_amp_pids" ]]; then
+  echo -e "\033[33mKilling old amp processes (PIDs=$old_amp_pids)...\033[0m"
+  echo "$old_amp_pids" | xargs kill -9 2>/dev/null || true
+  sleep 1
+fi
 
 # [1/6] Start proxy server
 echo -e "\033[36m[1/6] Khoi dong proxy server tren PORT=$PORT ...\033[0m"
@@ -280,7 +289,12 @@ SERVER_LOG_OUT="$REPO_ROOT/amp-cli-e2e.server.out.log"
 SERVER_LOG_ERR="$REPO_ROOT/amp-cli-e2e.server.err.log"
 
 cd "$REPO_ROOT"
-PORT=$PORT npm start > "$SERVER_LOG_OUT" 2> "$SERVER_LOG_ERR" &
+MAIN_CJS="$REPO_ROOT/main.cjs"
+if [[ -f "$MAIN_CJS" ]]; then
+  PORT=$PORT node "$MAIN_CJS" > "$SERVER_LOG_OUT" 2> "$SERVER_LOG_ERR" &
+else
+  PORT=$PORT npm start > "$SERVER_LOG_OUT" 2> "$SERVER_LOG_ERR" &
+fi
 SERVER_PID=$!
 
 if ! wait_healthz "$BASE_URL" 45; then
@@ -370,8 +384,8 @@ for ((i=0; i<MAX_POLL; i++)); do
     submitted_code="$auth_code"
   fi
 
-  # If awaiting_user for 15s+ and no auth_code from CLI, prompt user to paste from browser
-  if [[ "$state" == "awaiting_user" ]] && [[ -z "$auth_code" ]] && [[ "${prompted_code:-}" != "yes" ]] && [[ $i -ge 7 ]]; then
+  # Mac: browser hien auth code, user paste vao day. Prompt sau 4s
+  if [[ "$state" == "awaiting_user" ]] && [[ "${prompted_code:-}" != "yes" ]] && [[ $i -ge 2 ]]; then
     echo ""
     echo -e "\033[33m╔══════════════════════════════════════════════════════════════╗\033[0m"
     echo -e "\033[33m║  Browser hien Authentication Code.                          ║\033[0m"
@@ -444,8 +458,12 @@ if [[ "$final_state" == "authenticated" ]]; then
     kill -9 $port_pid 2>/dev/null || true
     sleep 1
   done
-  echo -e "\033[36mKhoi dong proxy foreground: PORT=$PORT npm start\033[0m"
+  echo -e "\033[36mKhoi dong proxy foreground...\033[0m"
   echo -e "\033[33mNhan Ctrl+C de dung proxy.\033[0m"
   cd "$REPO_ROOT"
-  PORT=$PORT exec npm start
+  if [[ -f "$MAIN_CJS" ]]; then
+    PORT=$PORT exec node "$MAIN_CJS"
+  else
+    PORT=$PORT exec npm start
+  fi
 fi
