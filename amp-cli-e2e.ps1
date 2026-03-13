@@ -263,6 +263,8 @@ try {
   $terminal = @("authenticated", "failed", "expired")
   $final = $null
   $openedLoginUrl = $false
+  $script:submittedCode = $null
+  $script:promptedCode = $false
 
   for ($i = 0; $i -lt $MaxPoll; $i++) {
     $st = Invoke-RestMethod -Method GET -Uri "$baseUrl/api/amp-cli/status?session_id=$sessionId" -Headers $headers
@@ -287,14 +289,36 @@ try {
       }
     }
 
-    if ($st.metadata -and $st.metadata.auth_code) {
-      Write-Host "Authentication Code: $($st.metadata.auth_code)" -ForegroundColor Yellow
+    # Auto-submit auth code if detected from CLI output
+    if ($st.metadata -and $st.metadata.auth_code -and $st.metadata.auth_code -ne $script:submittedCode) {
+      Write-Host "Auth code detected from CLI, submitting..." -ForegroundColor Yellow
       try {
-        Set-Clipboard -Value $st.metadata.auth_code
-        Write-Host "Da copy auth code vao clipboard." -ForegroundColor DarkYellow
+        $submitBody = @{ session_id = $sessionId; code = $st.metadata.auth_code } | ConvertTo-Json
+        Invoke-RestMethod -Uri "$BaseUrl/api/amp-cli/submit-code" -Method POST -Headers $headers -Body $submitBody -ContentType "application/json" -ErrorAction SilentlyContinue | Out-Null
+        Write-Host "Auth code submitted." -ForegroundColor Green
+        $script:submittedCode = $st.metadata.auth_code
       } catch {
-        # clipboard can fail in non-interactive hosts
+        Write-Host "Auto-submit failed." -ForegroundColor Red
       }
+    }
+
+    # If awaiting_user and no auth_code, prompt user to paste from browser
+    if ($st.state -eq "awaiting_user" -and -not $st.metadata.auth_code -and -not $script:promptedCode) {
+      Write-Host ""
+      Write-Host "Browser hien Authentication Code." -ForegroundColor Yellow
+      Write-Host "Copy code tu browser roi paste vao day:" -ForegroundColor Yellow
+      $userCode = Read-Host "Paste auth code"
+      if ($userCode) {
+        Write-Host "Submitting auth code ($($userCode.Length) chars)..." -ForegroundColor Yellow
+        try {
+          $submitBody = @{ session_id = $sessionId; code = $userCode } | ConvertTo-Json
+          Invoke-RestMethod -Uri "$BaseUrl/api/amp-cli/submit-code" -Method POST -Headers $headers -Body $submitBody -ContentType "application/json" -ErrorAction SilentlyContinue | Out-Null
+          Write-Host "Auth code submitted." -ForegroundColor Green
+        } catch {
+          Write-Host "Failed to submit code." -ForegroundColor Red
+        }
+      }
+      $script:promptedCode = $true
     }
 
     Write-Host $line -ForegroundColor Gray
