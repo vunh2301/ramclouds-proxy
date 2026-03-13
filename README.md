@@ -433,55 +433,72 @@ Scripts (root):
 
 ## Web Search
 
-Proxy hỗ trợ 2 chế độ web search tuỳ thuộc vào provider mode:
+Proxy hỗ trợ 3 chế độ web search, tự động chọn theo provider mode:
 
-### Chế độ 1: OpenAI Native Search (khi `PROVIDER_MODE=openai|auto`)
+### Chế độ 1: Ramclouds Native (khi `PROVIDER_MODE=ramclouds` — mặc định)
 
-Khi request có web search tool và đang dùng OpenAI direct mode:
+Ramclouds `/v1/responses` hỗ trợ native `web_search` tool:
+
+1. Proxy detect `web_search` tool trong Anthropic request
+2. Convert body sang Responses API format
+3. Forward đến Ramclouds `/v1/responses` với `{"type": "web_search"}` native
+4. Pipe response ngược lại dưới dạng Anthropic SSE stream
+5. **Không cần API key search** — Ramclouds xử lý hoàn toàn
+
+> Nếu native search fail → tự động fallback về chế độ 3 (proxy intercept).
+
+### Chế độ 2: OpenAI Native (khi `PROVIDER_MODE=openai|auto`)
+
+Tương tự chế độ 1 nhưng dùng OpenAI API:
 
 1. Proxy gửi request qua **Responses API** (`/v1/responses`) với `web_search_preview` hosted tool
-2. OpenAI tự thực hiện search server-side (native, chất lượng cao)
-3. Model trả lời trực tiếp dựa trên kết quả search
-4. **Không cần cấu hình API key search** — OpenAI xử lý hoàn toàn
+2. OpenAI tự thực hiện search server-side
+3. **Không cần API key search** — OpenAI xử lý hoàn toàn
 
-> Nếu OpenAI trả lỗi → tự động fallback về chế độ 2 (proxy intercept).
+> Nếu OpenAI fail → fallback về chế độ 3 (proxy intercept).
 
-### Chế độ 2: Proxy Intercept (khi `PROVIDER_MODE=ramclouds` hoặc fallback)
+### Chế độ 3: Proxy Intercept (fallback)
 
-Proxy tự intercept `web_search` / `web_search_preview` tool calls, tìm kiếm qua các backend, inject kết quả lại cho model:
+Khi chế độ 1 hoặc 2 fail, proxy tự search:
 
-1. Client gửi request có `web_search_preview` tool
-2. Proxy convert thành function tool, gửi lên upstream
-3. Khi model gọi `web_search`, proxy intercept (không gửi về client)
-4. Proxy tự search bằng backend khả dụng, inject kết quả vào conversation
-5. Gửi follow-up request để model trả lời dựa trên kết quả thực
+1. Proxy convert `web_search` thành function tool, gửi lên upstream
+2. Khi model gọi `web_search`, proxy intercept (không gửi về client)
+3. Proxy search bằng backend khả dụng, inject kết quả vào conversation
+4. Gửi follow-up request để model trả lời dựa trên kết quả thực
+5. Hiện tag backend + quota: `🧠 Exa (5/1000) · 2 queries`
 
-### Search backends (theo thứ tự ưu tiên)
+### Search backends cho chế độ 3 (theo thứ tự ưu tiên)
 
 | # | Backend | Biến môi trường | Miễn phí | Ghi chú |
 |---|---------|----------------|----------|---------|
-| 1 | **Brave Search** | `BRAVE_API_KEY` | 1000 query/tháng (cần thẻ) | Chất lượng cao nhất |
+| 1 | **Brave Search** | `BRAVE_API_KEY` | 2000 query/tháng (cần thẻ) | Chất lượng cao nhất |
 | 2 | **Tavily AI Search** | `TAVILY_API_KEY` | 1000 query/tháng (không cần thẻ) | Trả content sạch, AI-optimized |
 | 3 | **Exa AI Search** | `EXA_API_KEY` | 1000 query/tháng (không cần thẻ) | Neural/semantic search |
 | 4 | **Serper.dev** (Google) | `SERPER_API_KEY` | 2500 query (Google account) | Kết quả Google |
-| 5 | **Google News RSS** | — | Không giới hạn | Tự động, không cần key, chỉ tin tức |
+| 5 | **Google News RSS** | — | Không giới hạn | Không cần key, chỉ tin tức |
 | 6 | **DuckDuckGo HTML** | — | Không giới hạn | Hay bị rate-limit |
 | 7 | **Bing scrape** | — | Không giới hạn | Hay bị captcha |
 | 8 | **DuckDuckGo Lite** | — | Không giới hạn | Hay bị block |
 | 9 | **SearXNG** | `WEB_SEARCH_URL` | Tự host | Cần instance riêng |
 
-Proxy tự động fallback: nếu backend chính fail, thử backend tiếp theo trong chain.
+Proxy tự động fallback qua từng backend. Quota được theo dõi và lưu trong `search-quota.json` (persist qua restart). Khi hết quota → tự skip, dùng backend tiếp theo.
 
-### Cấu hình
+### Cấu hình search (chỉ cần cho chế độ 3 — fallback)
 
 | Biến | Mặc định | Mô tả |
 |------|----------|-------|
+| `BRAVE_API_KEY` | | API key Brave Search |
 | `TAVILY_API_KEY` | | API key Tavily (khuyên dùng, free 1000/tháng, không cần thẻ) |
 | `EXA_API_KEY` | | API key Exa (free 1000/tháng, neural search) |
 | `SERPER_API_KEY` | | API key Serper.dev (free 2500 queries) |
-| `BRAVE_API_KEY` | | API key Brave Search |
 | `WEB_SEARCH_URL` | | URL instance SearXNG |
 | `WEB_SEARCH_COUNT` | `5` | Số kết quả search (1-20) |
+| `BRAVE_MONTHLY_LIMIT` | `2000` | Giới hạn lượt Brave/tháng |
+| `TAVILY_MONTHLY_LIMIT` | `1000` | Giới hạn lượt Tavily/tháng |
+| `EXA_MONTHLY_LIMIT` | `1000` | Giới hạn lượt Exa/tháng |
+| `SERPER_MONTHLY_LIMIT` | `2500` | Giới hạn lượt Serper/tháng |
+
+> **Lưu ý**: Với `PROVIDER_MODE=ramclouds` (mặc định), web search dùng Ramclouds native — **không cần cấu hình bất kỳ API key search nào**. Các key trên chỉ cần khi native search fail và proxy dùng fallback.
 
 ## Kiểm tra nhanh
 
