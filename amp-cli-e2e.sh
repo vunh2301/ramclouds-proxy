@@ -338,7 +338,7 @@ echo -e "\033[33mstart state: $start_state\033[0m"
 
 # [5/6] Poll status
 echo -e "\033[36m[5/6] Theo doi trang thai...\033[0m"
-echo -e "\033[33mKhi thay login_url, script se mo browser. Neu co auth_code thi copy code do paste vao trang login.\033[0m"
+echo -e "\033[33mKhi thay login_url, browser se tu dong mo. Chi can approve trong browser roi doi.\033[0m"
 
 opened_login_url=false
 final_state=""
@@ -373,34 +373,6 @@ for ((i=0; i<MAX_POLL; i++)); do
         echo -e "\033[33mMo URL nay 1 lan duy nhat tren browser de tranh double-open.\033[0m"
       fi
     fi
-  fi
-
-  # Auto-submit auth code if detected from CLI output
-  if [[ -n "$auth_code" ]] && [[ "${submitted_code:-}" != "$auth_code" ]]; then
-    echo -e "\033[33mAuth code detected from CLI, submitting...\033[0m"
-    api_call POST "$BASE_URL/api/amp-cli/submit-code" \
-      -d "{\"session_id\":\"$session_id\",\"code\":\"$auth_code\"}" 2>/dev/null && \
-      echo -e "\033[32mAuth code submitted.\033[0m" || true
-    submitted_code="$auth_code"
-  fi
-
-  # Mac: browser hien auth code, user paste vao day. Prompt sau 4s
-  if [[ "$state" == "awaiting_user" ]] && [[ "${prompted_code:-}" != "yes" ]] && [[ $i -ge 2 ]]; then
-    echo ""
-    echo -e "\033[33m╔══════════════════════════════════════════════════════════════╗\033[0m"
-    echo -e "\033[33m║  Browser hien Authentication Code.                          ║\033[0m"
-    echo -e "\033[33m║  Copy code tu browser roi paste vao day:                    ║\033[0m"
-    echo -e "\033[33m╚══════════════════════════════════════════════════════════════╝\033[0m"
-    echo -n -e "\033[36mPaste auth code: \033[0m"
-    read -r user_code </dev/tty
-    if [[ -n "$user_code" ]]; then
-      echo -e "\033[33mSubmitting auth code (${#user_code} chars)...\033[0m"
-      api_call POST "$BASE_URL/api/amp-cli/submit-code" \
-        -d "{\"session_id\":\"$session_id\",\"code\":\"$user_code\"}" 2>/dev/null && \
-        echo -e "\033[32mAuth code submitted.\033[0m" || \
-        echo -e "\033[31mFailed to submit code.\033[0m"
-    fi
-    prompted_code="yes"
   fi
 
   echo -e "\033[90m$line\033[0m"
