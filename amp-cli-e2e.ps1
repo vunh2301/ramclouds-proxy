@@ -302,8 +302,8 @@ try {
       }
     }
 
-    # If awaiting_user and no auth_code, prompt user to paste from browser
-    if ($st.state -eq "awaiting_user" -and -not $st.metadata.auth_code -and -not $script:promptedCode) {
+    # If awaiting_user for 15s+ and no auth_code, prompt user to paste from browser
+    if ($st.state -eq "awaiting_user" -and -not $st.metadata.auth_code -and -not $script:promptedCode -and $i -ge 7) {
       Write-Host ""
       Write-Host "Browser hien Authentication Code." -ForegroundColor Yellow
       Write-Host "Copy code tu browser roi paste vao day:" -ForegroundColor Yellow

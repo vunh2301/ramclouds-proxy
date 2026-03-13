@@ -370,8 +370,8 @@ for ((i=0; i<MAX_POLL; i++)); do
     submitted_code="$auth_code"
   fi
 
-  # If awaiting_user and no auth_code from CLI, prompt user to paste from browser
-  if [[ "$state" == "awaiting_user" ]] && [[ -z "$auth_code" ]] && [[ "${prompted_code:-}" != "yes" ]]; then
+  # If awaiting_user for 15s+ and no auth_code from CLI, prompt user to paste from browser
+  if [[ "$state" == "awaiting_user" ]] && [[ -z "$auth_code" ]] && [[ "${prompted_code:-}" != "yes" ]] && [[ $i -ge 7 ]]; then
     echo ""
     echo -e "\033[33m╔══════════════════════════════════════════════════════════════╗\033[0m"
     echo -e "\033[33m║  Browser hien Authentication Code.                          ║\033[0m"
